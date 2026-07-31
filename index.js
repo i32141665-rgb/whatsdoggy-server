@@ -4,6 +4,11 @@ import { Server } from 'socket.io';
 import makeWASocket, { useMultiFileAuthState, DisconnectReason } from '@whiskeysockets/baileys';
 import { MongoClient } from 'mongodb';
 import qrcode from 'qrcode';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 const server = http.createServer(app);
@@ -12,10 +17,8 @@ const io = new Server(server);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Базовый маршрут для проверки работы
-app.get('/', (req, res) => {
-  res.send('WhatsDoggy Server is running!');
-});
+// Раздаем статические файлы (твой красивый сайт/интерфейс)
+app.use(express.static(__dirname));
 
 // Переменная для хранения состояния подключения Baileys
 let sock = null;
@@ -23,43 +26,43 @@ let qrCodeData = null;
 
 // Функция запуска WhatsApp клиента
 async function connectToWhatsApp() {
-  const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
-  
-  sock = makeWASocket({
-    auth: state,
-    printQRInTerminal: true
-  });
+    const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
 
-  sock.ev.on('creds.update', saveCreds);
+    sock = makeWASocket({
+        auth: state,
+        printQRInTerminal: true
+    });
 
-  sock.ev.on('connection.update', async (update) => {
-    const { connection, lastDisconnect, qr } = update;
-    
-    if (qr) {
-      qrCodeData = await qrcode.toDataURL(qr);
-      console.log('New QR Code generated');
-    }
+    sock.ev.on('creds.update', saveCreds);
 
-    if (connection === 'close') {
-      const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
-      console.log('Connection closed. Reconnecting:', shouldReconnect);
-      if (shouldReconnect) {
-        connectToWhatsApp();
-      }
-    } else if (connection === 'open') {
-      console.log('WhatsApp connected successfully!');
-      qrCodeData = null;
-    }
-  });
+    sock.ev.on('connection.update', async (update) => {
+        const { connection, lastDisconnect, qr } = update;
+
+        if (qr) {
+            qrCodeData = await qrcode.toDataURL(qr);
+            console.log('New QR Code generated');
+        }
+
+        if (connection === 'close') {
+            const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
+            console.log('Connection closed. Reconnecting:', shouldReconnect);
+            if (shouldReconnect) {
+                connectToWhatsApp();
+            }
+        } else if (connection === 'open') {
+            console.log('WhatsApp connected successfully!');
+            qrCodeData = null;
+        }
+    });
 }
 
 // Маршрут для получения QR-кода через веб-интерфейс / Socket.io при необходимости
 app.get('/qr', (req, res) => {
-  if (qrCodeData) {
-    res.send(`<img src="${qrCodeData}" alt="Scan QR Code"/>`);
-  } else {
-    res.send('QR Code not ready or already connected.');
-  }
+    if (qrCodeData) {
+        res.send(`<img src="${qrCodeData}" alt="Scan QR Code"/>`);
+    } else {
+        res.send('QR Code not ready or already connected.');
+    }
 });
 
 // Запуск клиента WhatsApp
@@ -69,6 +72,5 @@ connectToWhatsApp().catch(err => console.log('WhatsApp connection error:', err))
 const PORT = process.env.PORT || 3000;
 
 server.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
+    console.log(`Server is running on port ${PORT}`);
 });
- 
