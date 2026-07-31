@@ -1,4 +1,6 @@
-import makeWASocket, { useMultiFileAuthState, DisconnectReason } from '@whiskeysockets/baileys';
+import makeWASocket, { DisconnectReason } from '@whiskeysockets/baileys';
+import { useMongoDBAuthState } from 'mongo-baileys'; // Специальный модуль для работы сессий в MongoDB
+import { MongoClient } from 'mongodb';
 import express from 'express';
 import { createServer } from 'http';
 import { Server } from 'socket.io';
@@ -16,14 +18,22 @@ const server = createServer(app);
 const io = new Server(server);
 
 app.use(express.json());
-app.use(express.static(__dirname)); // ������ ����� ����� �� ����� �������
+app.use(express.static(__dirname));
 
 let sock;
 let isConnected = false;
 let currentQR = null;
 
+// Твоя ссылка на MongoDB Atlas, которую мы создали
+const MONGO_URI = 'mongodb+srv://i32141665_db_user:vEpRYR3DKC0S54uO@cluster0.hsanrkf.mongodb.net/?appName=Cluster0';
+
 async function connectToWhatsApp() {
-    const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
+    const client = new MongoClient(MONGO_URI);
+    await client.connect();
+    const db = client.db('whatsapp_session'); // Имя базы данных внутри кластера
+
+    // Подключаем сохранение сессии в MongoDB вместо папки на диске
+    const { state, saveCreds } = await useMongoDBAuthState(db);
 
     sock = makeWASocket({
         auth: state,
@@ -93,7 +103,7 @@ app.post('/api/send', async (req, res) => {
     const { number, message } = req.body;
 
     if (!isConnected) {
-        return res.status(400).json({ status: 'error', message: 'WhatsApp �� ���������' });
+        return res.status(400).json({ status: 'error', message: 'WhatsApp не подключен' });
     }
 
     try {
@@ -102,15 +112,20 @@ app.post('/api/send', async (req, res) => {
         res.json({ status: 'success' });
     } catch (err) {
         console.error('Send error:', err);
-        res.status(500).json({ status: 'error', message: '�� ������� ��������� ���������' });
+        res.status(500).json({ status: 'error', message: 'Не удалось отправить сообщение' });
     }
 });
 
-// ����� �� ��������
+// Выход из аккаунта
 app.post('/api/logout', async (req, res) => {
     try {
         if (sock) await sock.logout();
-        fs.rmSync(path.join(__dirname, 'auth_info_baileys'), { recursive: true, force: true });
+        // Очищаем данные из базы при выходе
+        const client = new MongoClient(MONGO_URI);
+        await client.connect();
+        await client.db('whatsapp_session').dropDatabase();
+        await client.close();
+
         res.json({ status: 'success' });
     } catch (err) {
         res.status(500).json({ status: 'error' });
