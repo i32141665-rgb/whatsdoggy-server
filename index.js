@@ -17,8 +17,13 @@ const io = new Server(server);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Раздаем статические файлы (твой красивый сайт/интерфейс)
+// Раздаем статические файлы
 app.use(express.static(__dirname));
+
+// Явно отдаем наш красивый index.html при заходе на главную страницу
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'index.html'));
+});
 
 // Переменная для хранения состояния подключения Baileys
 let sock = null;
@@ -41,27 +46,78 @@ async function connectToWhatsApp() {
         if (qr) {
             qrCodeData = await qrcode.toDataURL(qr);
             console.log('New QR Code generated');
+            io.emit('qr_code', qrCodeData);
         }
 
         if (connection === 'close') {
             const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
             console.log('Connection closed. Reconnecting:', shouldReconnect);
+            io.emit('connection_status', { connected: false });
             if (shouldReconnect) {
                 connectToWhatsApp();
             }
         } else if (connection === 'open') {
             console.log('WhatsApp connected successfully!');
             qrCodeData = null;
+            io.emit('connection_status', { connected: true });
+        }
+    });
+
+    sock.ev.on('messages.upsert', async ({ messages }) => {
+        const msg = messages[0];
+        if (!msg.message) return;
+
+        const from = msg.key.remoteJid;
+        const fromMe = msg.key.fromMe;
+        const text = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
+
+        if (text) {
+            io.emit('new_message', { from, text, fromMe });
         }
     });
 }
 
-// Маршрут для получения QR-кода через веб-интерфейс / Socket.io при необходимости
-app.get('/qr', (req, res) => {
-    if (qrCodeData) {
-        res.send(`<img src="${qrCodeData}" alt="Scan QR Code"/>`);
-    } else {
-        res.send('QR Code not ready or already connected.');
+// Socket.io соединения
+io.on('connection', (socket) => {
+    socket.on('check_status', () => {
+        if (sock && sock.user) {
+            socket.emit('connection_status', { connected: true });
+        } else if (qrCodeData) {
+            socket.emit('qr_code', qrCodeData);
+            socket.emit('connection_status', { connected: false });
+        } else {
+            socket.emit('connection_status', { connected: false });
+        }
+    });
+});
+
+// API для отправки сообщений
+app.post('/api/send', async (req, res) => {
+    try {
+        const { number, message } = req.body;
+        if (!sock) return res.status(500).json({ error: 'WhatsApp не запущен' });
+
+        const jid = number.includes('@') ? number : `${number}@s.whatsapp.net`;
+        await sock.sendMessage(jid, { text: message });
+        
+        res.json({ success: true });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// API для выхода / сброса сессии
+app.post('/api/logout', async (req, res) => {
+    try {
+        if (sock) {
+            await sock.logout();
+        }
+        qrCodeData = null;
+        res.json({ success: true });
+        setTimeout(() => connectToWhatsApp(), 2000);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
     }
 });
 
