@@ -1,630 +1,132 @@
-﻿<!DOCTYPE html>
-<html lang="ru">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>WhatsDoggy</title>
-    <style>
-        * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
-        
-        body {
-            background-color: #0b141a;
-            color: #e9edef;
-            height: 100vh;
-            display: flex;
-            justify-content: center;
-            align-items: center;
+﻿import express from 'express';
+import http from 'http';
+import { Server } from 'socket.io';
+import makeWASocket, { useMultiFileAuthState, DisconnectReason } from '@whiskeysockets/baileys';
+import { MongoClient } from 'mongodb';
+import qrcode from 'qrcode';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const app = express();
+const server = http.createServer(app);
+const io = new Server(server);
+
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// Раздаем статические файлы
+app.use(express.static(__dirname));
+
+// Явно отдаем наш красивый index.html при заходе на главную страницу
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'index.html'));
+});
+
+// Переменная для хранения состояния подключения Baileys
+let sock = null;
+let qrCodeData = null;
+
+// Функция запуска WhatsApp клиента
+async function connectToWhatsApp() {
+    const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
+
+    sock = makeWASocket({
+        auth: state,
+        printQRInTerminal: true
+    });
+
+    sock.ev.on('creds.update', saveCreds);
+
+    sock.ev.on('connection.update', async (update) => {
+        const { connection, lastDisconnect, qr } = update;
+
+        if (qr) {
+            qrCodeData = await qrcode.toDataURL(qr);
+            console.log('New QR Code generated');
+            io.emit('qr_code', qrCodeData);
         }
 
-        #qr-screen {
-            background-color: #111b21;
-            padding: 40px;
-            border-radius: 16px;
-            text-align: center;
-            border: 1px solid #222d34;
-            max-width: 380px;
-            width: 90%;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-            display: none;
-        }
-        #qr-screen h2 { color: #00a884; margin-bottom: 10px; }
-        #qr-screen p { color: #8696a0; font-size: 14px; margin-bottom: 25px; line-height: 1.4; }
-        
-        .qr-box {
-            width: 240px;
-            height: 240px;
-            background: #fff;
-            padding: 10px;
-            border-radius: 12px;
-            margin: 0 auto;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-
-        #qr-image { width: 220px; height: 220px; display: none; border-radius: 4px; }
-        #qr-loader { color: #111b21; font-size: 14px; font-weight: 500; }
-
-        #app-screen {
-            width: 100%;
-            max-width: 420px;
-            height: 100vh;
-            max-height: 850px;
-            background-color: #0b141a;
-            display: none;
-            flex-direction: column;
-            position: relative;
-            box-shadow: 0 0 20px rgba(0,0,0,0.8);
-            border-radius: 12px;
-            overflow: hidden;
-        }
-
-        .top-bar {
-            padding: 16px;
-            background-color: #0b141a;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-        .top-bar h1 { font-size: 22px; font-weight: 600; color: #e9edef; }
-        .top-icons { display: flex; gap: 20px; color: #aebac1; font-size: 20px; cursor: pointer; }
-
-        .filters {
-            display: flex;
-            gap: 8px;
-            padding: 0 16px 12px 16px;
-            overflow-x: auto;
-            scrollbar-width: none;
-        }
-        .filters::-webkit-scrollbar { display: none; }
-        
-        .chip {
-            background-color: #202c33;
-            color: #8696a0;
-            padding: 6px 16px;
-            border-radius: 18px;
-            font-size: 14px;
-            white-space: nowrap;
-            cursor: pointer;
-        }
-        .chip.active { background-color: #0c3b2e; color: #00a884; }
-
-        .tab-content { flex: 1; overflow-y: auto; display: none; flex-direction: column; }
-        .tab-content.active { display: flex; }
-
-        .chat-item {
-            display: flex;
-            align-items: center;
-            padding: 12px 16px;
-            gap: 14px;
-            cursor: pointer;
-            transition: background 0.2s;
-        }
-        .chat-item:hover { background-color: #202c33; }
-        .avatar {
-            width: 50px;
-            height: 50px;
-            border-radius: 50%;
-            background-color: #6b7c85;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 20px;
-            font-weight: bold;
-            color: #fff;
-            flex-shrink: 0;
-        }
-        .chat-info { flex: 1; border-bottom: 1px solid #1f2c34; padding-bottom: 12px; }
-        .chat-header { display: flex; justify-content: space-between; margin-bottom: 4px; }
-        .chat-name { font-size: 16px; font-weight: 500; color: #e9edef; }
-        .chat-time { font-size: 12px; color: #8696a0; }
-        .chat-last-msg { font-size: 14px; color: #8696a0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 250px; display: flex; align-items: center; gap: 4px; }
-        .ticks { color: #53bdeb; font-size: 14px; }
-
-        /* Раздел настроек */
-        .settings-list { padding: 10px 0; }
-        .setting-item {
-            display: flex;
-            align-items: center;
-            padding: 14px 16px;
-            gap: 16px;
-            cursor: pointer;
-            border-bottom: 1px solid #1f2c34;
-        }
-        .setting-item:hover { background-color: #202c33; }
-        .setting-icon { font-size: 20px; color: #8696a0; width: 30px; text-align: center; }
-        .setting-title { font-size: 16px; color: #e9edef; margin-bottom: 2px; }
-        .setting-sub { font-size: 13px; color: #8696a0; }
-
-        .fab {
-            position: absolute;
-            bottom: 75px;
-            right: 16px;
-            width: 56px;
-            height: 56px;
-            background-color: #00a884;
-            border-radius: 16px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: #0b141a;
-            font-size: 24px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.4);
-            cursor: pointer;
-        }
-
-        .bottom-nav {
-            height: 65px;
-            background-color: #0b141a;
-            border-top: 1px solid #1f2c34;
-            display: flex;
-            justify-content: space-around;
-            align-items: center;
-        }
-        .nav-item { display: flex; flex-direction: column; align-items: center; gap: 4px; color: #8696a0; font-size: 12px; cursor: pointer; }
-        .nav-item.active { color: #e9edef; }
-        .nav-icon-wrapper { padding: 4px 18px; border-radius: 16px; font-size: 18px; }
-        .nav-item.active .nav-icon-wrapper { background-color: #103629; color: #25d366; }
-
-        /* Чат */
-        #chat-window {
-            display: none;
-            position: absolute;
-            top: 0; left: 0; width: 100%; height: 100%;
-            background-color: #0b141a;
-            z-index: 20;
-            flex-direction: column;
-        }
-        .chat-window-header {
-            padding: 10px 16px;
-            background-color: #202c33;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-        }
-        .chat-header-left { display: flex; align-items: center; gap: 12px; }
-        .back-btn { font-size: 22px; cursor: pointer; color: #aebac1; }
-        .chat-avatar-small { width: 40px; height: 40px; border-radius: 50%; background: #6b7c85; display: flex; align-items: center; justify-content: center; font-weight: bold; }
-        .chat-user-title { font-size: 16px; font-weight: 500; }
-        
-        .chat-messages-area {
-            flex: 1;
-            padding: 16px;
-            overflow-y: auto;
-            background-color: #0b141a;
-            display: flex;
-            flex-direction: column;
-            gap: 8px;
-        }
-
-        .msg-bubble {
-            max-width: 75%;
-            padding: 8px 12px;
-            border-radius: 12px;
-            font-size: 15px;
-            position: relative;
-            line-height: 1.4;
-            word-wrap: break-word;
-        }
-        .msg-incoming { background-color: #202c33; align-self: flex-start; border-top-left-radius: 0; }
-        .msg-outgoing { background-color: #005c4b; align-self: flex-end; border-top-right-radius: 0; }
-        .msg-time { font-size: 11px; color: #8696a0; float: right; margin-left: 10px; margin-top: 4px; }
-
-        .chat-input-bar {
-            padding: 8px 12px;
-            background-color: #202c33;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        .chat-input-container {
-            flex: 1;
-            background-color: #2a3942;
-            border-radius: 20px;
-            display: flex;
-            align-items: center;
-            padding: 8px 16px;
-            gap: 10px;
-        }
-        .chat-input-container input {
-            background: transparent;
-            border: none;
-            outline: none;
-            color: #e9edef;
-            width: 100%;
-            font-size: 15px;
-        }
-        .send-btn-circle {
-            width: 45px;
-            height: 45px;
-            background-color: #00a884;
-            border-radius: 50%;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: #0b141a;
-            font-size: 20px;
-            cursor: pointer;
-            border: none;
-        }
-
-        /* Экран звонка */
-        #call-screen {
-            display: none;
-            position: absolute;
-            top: 0; left: 0; width: 100%; height: 100%;
-            background-color: #0d1418;
-            z-index: 30;
-            flex-direction: column;
-            align-items: center;
-            justify-content: space-between;
-            padding: 60px 20px 40px 20px;
-        }
-        .call-user-info { text-align: center; }
-        .call-avatar { width: 100px; height: 100px; border-radius: 50%; background: #6b7c85; margin: 20px auto; display: flex; align-items: center; justify-content: center; font-size: 40px; font-weight: bold; }
-        .call-status { color: #8696a0; margin-top: 8px; font-size: 15px; }
-        .call-controls { display: flex; gap: 20px; }
-        .call-btn { width: 60px; height: 60px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 22px; cursor: pointer; border: none; }
-        .call-btn-end { background-color: #ea0038; color: #fff; }
-        .call-btn-opt { background-color: #202c33; color: #e9edef; }
-
-        /* Адаптивный дизайн для больших экранов (ПК и ноутбуки) */
-        @media (min-width: 768px) {
-            #app-screen {
-                max-width: 850px;
-                height: 90vh;
-                border: 1px solid #222d34;
+        if (connection === 'close') {
+            const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
+            console.log('Connection closed. Reconnecting:', shouldReconnect);
+            io.emit('connection_status', { connected: false });
+            if (shouldReconnect) {
+                connectToWhatsApp();
             }
+        } else if (connection === 'open') {
+            console.log('WhatsApp connected successfully!');
+            qrCodeData = null;
+            io.emit('connection_status', { connected: true });
         }
-    </style>
-</head>
-<body>
-
-<div id="qr-screen">
-    <h2>Вход в WhatsDoggy</h2>
-    <p>Откройте WhatsApp на телефоне<br><b>Связанные устройства → Привязка устройства</b></p>
-    <div class="qr-box">
-        <div id="qr-loader">Генерация QR-кода...</div>
-        <img id="qr-image" src="" alt="QR Code">
-    </div>
-</div>
-
-<div id="app-screen">
-    <div class="top-bar">
-        <h1 id="page-title">WhatsDoggy</h1>
-        <div class="top-icons">
-            <span onclick="alert('Камера пока не подключена')">📷</span>
-            <span onclick="alert('Поиск работает по чатам')">🔍</span>
-            <span onclick="switchTab('settings')">⋮</span>
-        </div>
-    </div>
-
-    <!-- Вкладка 1: Чаты -->
-    <div id="tab-chats" class="tab-content active">
-        <div class="filters">
-            <div class="chip active">Все</div>
-            <div class="chip">Непрочитанное</div>
-            <div class="chip">Избранное</div>
-            <div class="chip">Группы</div>
-        </div>
-        <div class="chats-list" id="chats-list"></div>
-    </div>
-
-    <!-- Вкладка 2: Звонки -->
-    <div id="tab-calls" class="tab-content">
-        <div class="settings-list" id="calls-list">
-            <div style="padding: 20px; text-align: center; color: #8696a0;">
-                Здесь будет история вызовов.<br>Нажмите на значок ниже, чтобы позвонить.
-            </div>
-        </div>
-    </div>
-
-    <!-- Вкладка 3: Настройки -->
-    <div id="tab-settings" class="tab-content">
-        <div class="settings-list">
-            <div class="setting-item">
-                <div class="avatar" style="width: 45px; height: 45px; font-size: 18px;">U</div>
-                <div>
-                    <div class="setting-title">Пользователь WhatsDoggy</div>
-                    <div class="setting-sub">В сети</div>
-                </div>
-            </div>
-            <div class="setting-item" onclick="alert('WhatsDoggy v1.0.0\nВсе системы работают нормально.')">
-                <div class="setting-icon">⚙️</div>
-                <div>
-                    <div class="setting-title">Аккаунт и безопасность</div>
-                    <div class="setting-sub">Конфиденциальность, безопасность</div>
-                </div>
-            </div>
-            <div class="setting-item" onclick="alert('Уведомления включены.')">
-                <div class="setting-icon">🔔</div>
-                <div>
-                    <div class="setting-title">Уведомления</div>
-                    <div class="setting-sub">Звуки, сообщения, вызовы</div>
-                </div>
-            </div>
-            <div class="setting-item" onclick="logoutSession()">
-                <div class="setting-icon" style="color: #ea0038;">🚪</div>
-                <div>
-                    <div class="setting-title" style="color: #ea0038;">Выйти из WhatsApp</div>
-                    <div class="setting-sub">Отключить текущую сессию</div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <div class="fab" id="main-fab" onclick="handleFabClick()">💬</div>
-
-    <!-- Нижнее меню -->
-    <div class="bottom-nav">
-        <div class="nav-item active" id="nav-chats" onclick="switchTab('chats')">
-            <div class="nav-icon-wrapper">💬</div>
-            <span>Чаты</span>
-        </div>
-        <div class="nav-item" id="nav-calls" onclick="switchTab('calls')">
-            <div class="nav-icon-wrapper">📞</div>
-            <span>Звонки</span>
-        </div>
-        <div class="nav-item" id="nav-settings" onclick="switchTab('settings')">
-            <div class="nav-icon-wrapper">⚙️</div>
-            <span>Настройки</span>
-        </div>
-    </div>
-
-    <!-- Окно чата -->
-    <div id="chat-window">
-        <div class="chat-window-header">
-            <div class="chat-header-left">
-                <span class="back-btn" onclick="closeChat()">←</span>
-                <div class="chat-avatar-small" id="chat-avatar">?</div>
-                <div class="chat-user-title" id="chat-title">Чат</div>
-            </div>
-            <div class="top-icons">
-                <span onclick="startCall(activeChatPhone, true)">📹</span>
-                <span onclick="startCall(activeChatPhone, false)">📞</span>
-                <span onclick="alert('Опции чата')">⋮</span>
-            </div>
-        </div>
-
-        <div class="chat-messages-area" id="chat-messages"></div>
-
-        <div class="chat-input-bar">
-            <div class="chat-input-container">
-                <span>😊</span>
-                <input type="text" id="chat-input" placeholder="Сообщение" onkeydown="if(event.key==='Enter') sendMessage()">
-                <span>📎</span>
-            </div>
-            <button class="send-btn-circle" onclick="sendMessage()">➤</button>
-        </div>
-    </div>
-
-    <!-- Окно совершения звонка -->
-    <div id="call-screen">
-        <div class="call-user-info">
-            <h2 id="call-user-name">Имя Контакта</h2>
-            <div class="call-status" id="call-status-text">Вызов...</div>
-            <div class="call-avatar" id="call-avatar">?</div>
-        </div>
-        <div class="call-controls">
-            <button class="call-btn call-btn-opt" onclick="toggleMute()">🎙️</button>
-            <button class="call-btn call-btn-end" onclick="endCall()">📞</button>
-            <button class="call-btn call-btn-opt" onclick="toggleSpeaker()">🔊</button>
-        </div>
-    </div>
-</div>
-
-<script src="/socket.io/socket.io.js"></script>
-<script>
-    const socket = io();
-    const chatsMap = new Map();
-    let activeChatPhone = null;
-    let currentTab = 'chats';
-    let callTimer = null;
-    let callSeconds = 0;
-
-    socket.on('connect', () => {
-        socket.emit('check_status');
     });
 
-    socket.on('qr_code', (qrUrl) => {
-        document.getElementById('qr-screen').style.display = 'block';
-        document.getElementById('app-screen').style.display = 'none';
-        const img = document.getElementById('qr-image');
-        const loader = document.getElementById('qr-loader');
-        img.src = qrUrl;
-        img.style.display = 'block';
-        if (loader) loader.style.display = 'none';
-    });
+    sock.ev.on('messages.upsert', async ({ messages }) => {
+        const msg = messages[0];
+        if (!msg.message) return;
 
-    socket.on('connection_status', (data) => {
-        if (data.connected) {
-            document.getElementById('qr-screen').style.display = 'none';
-            document.getElementById('app-screen').style.display = 'flex';
+        const from = msg.key.remoteJid;
+        const fromMe = msg.key.fromMe;
+        const text = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
+
+        if (text) {
+            io.emit('new_message', { from, text, fromMe });
+        }
+    });
+}
+
+// Socket.io соединения
+io.on('connection', (socket) => {
+    socket.on('check_status', () => {
+        if (sock && sock.user) {
+            socket.emit('connection_status', { connected: true });
+        } else if (qrCodeData) {
+            socket.emit('qr_code', qrCodeData);
+            socket.emit('connection_status', { connected: false });
         } else {
-            document.getElementById('qr-screen').style.display = 'block';
-            document.getElementById('app-screen').style.display = 'none';
+            socket.emit('connection_status', { connected: false });
         }
     });
+});
 
-    socket.on('new_message', (data) => {
-        const rawSender = data.from.replace('@s.whatsapp.net', '').replace('@lid', '');
-        const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+// API для отправки сообщений
+app.post('/api/send', async (req, res) => {
+    try {
+        const { number, message } = req.body;
+        if (!sock) return res.status(500).json({ error: 'WhatsApp не запущен' });
+
+        const jid = number.includes('@') ? number : `${number}@s.whatsapp.net`;
+        await sock.sendMessage(jid, { text: message });
         
-        if (!chatsMap.has(rawSender)) {
-            chatsMap.set(rawSender, { name: rawSender, messages: [] });
+        res.json({ success: true });
+    } catch (err) {
+        console.error(err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// API для выхода / сброса сессии
+app.post('/api/logout', async (req, res) => {
+    try {
+        if (sock) {
+            await sock.logout();
         }
-
-        const chat = chatsMap.get(rawSender);
-        chat.messages.push({ text: data.text, time: timeStr, fromMe: data.fromMe });
-
-        renderChats();
-        if (activeChatPhone === rawSender) {
-            renderMessages(rawSender);
-        }
-    });
-
-    function switchTab(tabName) {
-        currentTab = tabName;
-        document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
-        document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
-
-        document.getElementById(`tab-${tabName}`).classList.add('active');
-        document.getElementById(`nav-${tabName}`).classList.add('active');
-
-        const fab = document.getElementById('main-fab');
-        const title = document.getElementById('page-title');
-
-        if (tabName === 'chats') {
-            title.innerText = 'WhatsDoggy';
-            fab.innerText = '💬';
-            fab.style.display = 'flex';
-        } else if (tabName === 'calls') {
-            title.innerText = 'Звонки';
-            fab.innerText = '📞';
-            fab.style.display = 'flex';
-        } else if (tabName === 'settings') {
-            title.innerText = 'Настройки';
-            fab.style.display = 'none';
-        }
+        qrCodeData = null;
+        res.json({ success: true });
+        setTimeout(() => connectToWhatsApp(), 2000);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
     }
+});
 
-    function handleFabClick() {
-        if (currentTab === 'chats') {
-            openNewChatPrompt();
-        } else if (currentTab === 'calls') {
-            const phone = prompt('Введите номер для звонка (например, 77022549478):');
-            if (phone) startCall(phone, false);
-        }
-    }
+// Запуск клиента WhatsApp
+connectToWhatsApp().catch(err => console.log('WhatsApp connection error:', err));
 
-    function renderChats() {
-        const container = document.getElementById('chats-list');
-        container.innerHTML = '';
+// Обязательный порт для работы на Render (или 3000 локально)
+const PORT = process.env.PORT || 3000;
 
-        chatsMap.forEach((chat, phone) => {
-            const lastMsgObj = chat.messages[chat.messages.length - 1] || { text: '', time: '', fromMe: false };
-            const firstLetter = chat.name.charAt(0).toUpperCase();
-
-            const item = document.createElement('div');
-            item.className = 'chat-item';
-            item.onclick = () => openChat(phone);
-            
-            item.innerHTML = `
-                <div class="avatar">${firstLetter}</div>
-                <div class="chat-info">
-                    <div class="chat-header">
-                        <span class="chat-name">${chat.name}</span>
-                        <span class="chat-time">${lastMsgObj.time}</span>
-                    </div>
-                    <div class="chat-last-msg">
-                        ${lastMsgObj.fromMe ? '<span class="ticks">✓✓</span>' : ''}
-                        <span>${lastMsgObj.text}</span>
-                    </div>
-                </div>
-            `;
-            container.prepend(item);
-        });
-    }
-
-    function openChat(phone) {
-        activeChatPhone = phone;
-        const chat = chatsMap.get(phone);
-        
-        document.getElementById('chat-title').innerText = chat ? chat.name : phone;
-        document.getElementById('chat-avatar').innerText = (chat ? chat.name : phone).charAt(0).toUpperCase();
-        document.getElementById('chat-window').style.display = 'flex';
-        renderMessages(phone);
-    }
-
-    function closeChat() {
-        activeChatPhone = null;
-        document.getElementById('chat-window').style.display = 'none';
-    }
-
-    function renderMessages(phone) {
-        const container = document.getElementById('chat-messages');
-        container.innerHTML = '';
-        
-        const chat = chatsMap.get(phone);
-        if (!chat) return;
-
-        chat.messages.forEach(msg => {
-            const bubble = document.createElement('div');
-            bubble.className = `msg-bubble ${msg.fromMe ? 'msg-outgoing' : 'msg-incoming'}`;
-            bubble.innerHTML = `
-                ${msg.text}
-                <span class="msg-time">${msg.time} ${msg.fromMe ? '<span class="ticks">✓✓</span>' : ''}</span>
-            `;
-            container.appendChild(bubble);
-        });
-        container.scrollTop = container.scrollHeight;
-    }
-
-    async function sendMessage() {
-        const input = document.getElementById('chat-input');
-        const text = input.value.trim();
-        if (!text || !activeChatPhone) return;
-
-        input.value = '';
-
-        try {
-            await fetch('/api/send', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ number: activeChatPhone, message: text })
-            });
-        } catch (err) {
-            console.error('Ошибка:', err);
-        }
-    }
-
-    function openNewChatPrompt() {
-        const phone = prompt('Введите номер телефона (например, 77022549478):');
-        if (phone) {
-            if (!chatsMap.has(phone)) {
-                chatsMap.set(phone, { name: phone, messages: [] });
-            }
-            openChat(phone);
-        }
-    }
-
-    function startCall(phone, isVideo) {
-        if (!phone) {
-            phone = prompt('Введите номер для звонка:');
-            if (!phone) return;
-        }
-
-        document.getElementById('call-user-name').innerText = phone;
-        document.getElementById('call-avatar').innerText = phone.charAt(0).toUpperCase();
-        document.getElementById('call-status-text').innerText = isVideo ? 'Видеовызов...' : 'Аудиовызов...';
-        document.getElementById('call-screen').style.display = 'flex';
-
-        setTimeout(() => {
-            document.getElementById('call-status-text').innerText = '00:00';
-            callSeconds = 0;
-            callTimer = setInterval(() => {
-                callSeconds++;
-                const mins = String(Math.floor(callSeconds / 60)).padStart(2, '0');
-                const secs = String(callSeconds % 60).padStart(2, '0');
-                document.getElementById('call-status-text').innerText = `${mins}:${secs}`;
-            }, 1000);
-        }, 2500);
-    }
-
-    function endCall() {
-        clearInterval(callTimer);
-        document.getElementById('call-screen').style.display = 'none';
-    }
-
-    function toggleMute() { alert('Микрофон переключен'); }
-    function toggleSpeaker() { alert('Динамик переключен'); }
-
-    async function logoutSession() {
-        if (confirm('Вы уверены, что хотите выйти из WhatsApp?')) {
-            await fetch('/api/logout', { method: 'POST' });
-            location.reload();
-        }
-    }
-</script>
-</body>
-</html>
+server.listen(PORT, () => {
+    console.log(`Server is running on port ${PORT}`);
+});
