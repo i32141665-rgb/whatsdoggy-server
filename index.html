@@ -108,7 +108,7 @@
             width: 50px;
             height: 50px;
             border-radius: 50%;
-            background-color: #6b7c85;
+            background-color: #00a884;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -169,6 +169,55 @@
         .nav-icon-wrapper { padding: 4px 14px; border-radius: 16px; font-size: 18px; }
         .nav-item.active .nav-icon-wrapper { background-color: #103629; color: #25d366; }
 
+        /* Подэкран редактирования профиля */
+        #profile-screen {
+            display: none;
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background-color: #0b141a;
+            z-index: 25;
+            flex-direction: column;
+        }
+        .profile-header {
+            padding: 14px 16px;
+            background-color: #202c33;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+        .profile-avatar-big {
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            background-color: #00a884;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 50px;
+            font-weight: bold;
+            color: #fff;
+            margin: 30px auto;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+        }
+        .profile-field-group {
+            padding: 16px;
+            background-color: #111b21;
+            margin-bottom: 10px;
+            border-bottom: 1px solid #1f2c34;
+            border-top: 1px solid #1f2c34;
+        }
+        .profile-label { font-size: 13px; color: #00a884; margin-bottom: 6px; font-weight: 500; }
+        .profile-input {
+            width: 100%;
+            background: transparent;
+            border: none;
+            border-bottom: 2px solid #00a884;
+            color: #e9edef;
+            font-size: 16px;
+            padding: 6px 0;
+            outline: none;
+        }
+
         #chat-window {
             display: none;
             position: absolute;
@@ -186,7 +235,7 @@
         }
         .chat-header-left { display: flex; align-items: center; gap: 12px; }
         .back-btn { font-size: 22px; cursor: pointer; color: #aebac1; }
-        .chat-avatar-small { width: 40px; height: 40px; border-radius: 50%; background: #6b7c85; display: flex; align-items: center; justify-content: center; font-weight: bold; color: #fff; }
+        .chat-avatar-small { width: 40px; height: 40px; border-radius: 50%; background: #00a884; display: flex; align-items: center; justify-content: center; font-weight: bold; color: #fff; }
         .chat-user-title { font-size: 16px; font-weight: 500; color: #e9edef; }
         
         .chat-messages-area {
@@ -263,7 +312,7 @@
             padding: 60px 20px 40px 20px;
         }
         .call-user-info { text-align: center; }
-        .call-avatar { width: 100px; height: 100px; border-radius: 50%; background: #6b7c85; margin: 20px auto; display: flex; align-items: center; justify-content: center; font-size: 40px; font-weight: bold; color: #fff; }
+        .call-avatar { width: 100px; height: 100px; border-radius: 50%; background: #00a884; margin: 20px auto; display: flex; align-items: center; justify-content: center; font-size: 40px; font-weight: bold; color: #fff; }
         .call-status { color: #8696a0; margin-top: 8px; font-size: 15px; }
         .call-controls { display: flex; gap: 20px; }
         .call-btn { width: 60px; height: 60px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 22px; cursor: pointer; border: none; }
@@ -311,7 +360,7 @@
         <div class="chats-list" id="chats-list"></div>
     </div>
 
-    <!-- Вкладка 2: Контакты (Сохраненные) -->
+    <!-- Вкладка 2: Контакты -->
     <div id="tab-contacts" class="tab-content">
         <div class="settings-list" id="contacts-list"></div>
     </div>
@@ -328,11 +377,11 @@
     <!-- Вкладка 4: Настройки -->
     <div id="tab-settings" class="tab-content">
         <div class="settings-list">
-            <div class="setting-item">
-                <div class="avatar" style="width: 45px; height: 45px; font-size: 18px;">U</div>
+            <div class="setting-item" onclick="openProfileScreen()">
+                <div class="avatar" id="settings-my-avatar" style="width: 55px; height: 55px; font-size: 20px;">U</div>
                 <div>
-                    <div class="setting-title">Пользователь WhatsDoggy</div>
-                    <div class="setting-sub">В сети</div>
+                    <div class="setting-title" id="settings-my-name">Пользователь WhatsDoggy</div>
+                    <div class="setting-sub" id="settings-my-status">В сети</div>
                 </div>
             </div>
             <div class="setting-item" onclick="clearChatsOnly()">
@@ -349,6 +398,23 @@
                     <div class="setting-sub">Отключить текущую сессию</div>
                 </div>
             </div>
+        </div>
+    </div>
+
+    <!-- Экран редактирования профиля -->
+    <div id="profile-screen">
+        <div class="profile-header">
+            <span class="back-btn" onclick="closeProfileScreen()">←</span>
+            <span style="font-size: 18px; font-weight: 500;">Профиль</span>
+        </div>
+        <div class="profile-avatar-big" id="profile-big-avatar">U</div>
+        <div class="profile-field-group">
+            <div class="profile-label">Ваше имя</div>
+            <input type="text" id="profile-input-name" class="profile-input" placeholder="Введите имя..." oninput="saveProfileData()">
+        </div>
+        <div class="profile-field-group">
+            <div class="profile-label">О себе / Статус</div>
+            <input type="text" id="profile-input-status" class="profile-input" placeholder="Например: В сети" oninput="saveProfileData()">
         </div>
     </div>
 
@@ -420,14 +486,49 @@
 <script>
     const socket = io();
     const chatsMap = new Map();
-    // Загружаем сохраненные контакты из памяти браузера (localStorage)
     let savedContacts = JSON.parse(localStorage.getItem('doggy_contacts') || '[]');
+    
+    // Загрузка данных профиля из localStorage или дефолтные значения
+    let userProfile = JSON.parse(localStorage.getItem('doggy_profile') || JSON.stringify({ name: 'Пользователь WhatsDoggy', status: 'В сети' }));
+
     let activeChatPhone = null;
     let currentTab = 'chats';
     let currentFilter = 'all';
     let callTimer = null;
     let callSeconds = 0;
     let activeCallType = null;
+
+    // Инициализация профиля при загрузке
+    function initProfileUI() {
+        document.getElementById('settings-my-name').innerText = userProfile.name;
+        document.getElementById('settings-my-status').innerText = userProfile.status;
+        
+        const firstLetter = userProfile.name.charAt(0).toUpperCase() || 'U';
+        document.getElementById('settings-my-avatar').innerText = firstLetter;
+        document.getElementById('profile-big-avatar').innerText = firstLetter;
+        
+        document.getElementById('profile-input-name').value = userProfile.name;
+        document.getElementById('profile-input-status').value = userProfile.status;
+    }
+
+    function saveProfileData() {
+        const nameInput = document.getElementById('profile-input-name').value.trim();
+        const statusInput = document.getElementById('profile-input-status').value.trim();
+
+        userProfile.name = nameInput || 'WhatsDoggy User';
+        userProfile.status = statusInput || 'В сети';
+
+        localStorage.setItem('doggy_profile', JSON.stringify(userProfile));
+        initProfileUI();
+    }
+
+    function openProfileScreen() {
+        document.getElementById('profile-screen').style.display = 'flex';
+    }
+
+    function closeProfileScreen() {
+        document.getElementById('profile-screen').style.display = 'none';
+    }
 
     socket.on('connect', () => {
         socket.emit('check_status');
@@ -448,6 +549,7 @@
             document.getElementById('qr-screen').style.display = 'none';
             document.getElementById('app-screen').style.display = 'flex';
             renderContacts();
+            initProfileUI();
         } else {
             document.getElementById('qr-screen').style.display = 'flex';
             document.getElementById('app-screen').style.display = 'none';
@@ -459,7 +561,6 @@
         return rawId.replace('@s.whatsapp.net', '').replace('@lid', '').replace('@g.us', '');
     }
 
-    // Сохранение контакта в постоянную память браузера
     function addContact(phone, name = '') {
         let clean = cleanId(phone);
         if (!clean) return;
@@ -479,7 +580,6 @@
             targetKey = '77767737216'; 
         }
 
-        // Автоматически добавляем входящего в сохраненные контакты
         addContact(targetKey);
 
         const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -680,7 +780,7 @@
     }
 
     function clearChatsOnly() {
-        if (confirm('Стереть все чаты и сообщения? Ваши сохраненные контакты останутся на месте.')) {
+        if (confirm('Стереть все чаты и сообщения? Ваши сохраненные контакты и настройки профиля останутся на месте.')) {
             chatsMap.clear();
             renderChats();
             alert('Все чаты успешно очищены!');
