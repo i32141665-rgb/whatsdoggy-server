@@ -70,6 +70,24 @@ async function connectToWhatsApp() {
                 messageText = msg.message.conversation;
             } else if (msg.message?.extendedTextMessage) {
                 messageText = msg.message.extendedTextMessage.text;
+            } else if (msg.message?.audioMessage) {
+                messageType = 'audio';
+                try {
+                    const stream = await downloadMediaMessage(msg, 'buffer', {}, { logger: pino({ level: 'silent' }) });
+                    messageText = `data:audio/ogg;base64,${stream.toString('base64')}`;
+                } catch (err) {
+                    console.error('Ошибка скачивания входящего аудио:', err);
+                    messageText = '';
+                }
+            } else if (msg.message?.imageMessage) {
+                messageType = 'image';
+                try {
+                    const stream = await downloadMediaMessage(msg, 'buffer', {}, { logger: pino({ level: 'silent' }) });
+                    messageText = `data:image/jpeg;base64,${stream.toString('base64')}`;
+                } catch (err) {
+                    console.error('Ошибка скачивания входящего фото:', err);
+                    messageText = '';
+                }
             }
 
             io.emit('message', {
@@ -104,13 +122,14 @@ io.on('connection', (socket) => {
         }
     });
 
-    // Обработка номеров формата +7 и отправка
+    // Надежная обработка и отправка сообщений с поддержкой казахстанских номеров (+7)
     socket.on('send_message', async (data) => {
         try {
             let cleanTo = data.to.replace(/\D/g, '').trim();
-            // Если номер начинается с 8 (например, 8776...), заменяем на казахстанский код 7
-            if (cleanTo.length === 11 && cleanTo.startsWith('8')) {
+            if (cleanTo.startsWith('8') && cleanTo.length === 11) {
                 cleanTo = '7' + cleanTo.slice(1);
+            } else if (cleanTo.length === 10) {
+                cleanTo = '7' + cleanTo;
             }
             const jid = `${cleanTo}@s.whatsapp.net`;
 
@@ -123,7 +142,7 @@ io.on('connection', (socket) => {
             } else {
                 await sock.sendMessage(jid, { text: data.text });
             }
-            console.log('Сообщение отправлено на JID:', jid);
+            console.log('Сообщение успешно отправлено на JID:', jid);
         } catch (error) {
             console.error('Ошибка отправки сообщения:', error);
         }
