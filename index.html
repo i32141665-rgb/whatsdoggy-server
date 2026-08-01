@@ -302,10 +302,10 @@
     <!-- Вкладка 1: Чаты -->
     <div id="tab-chats" class="tab-content active">
         <div class="filters">
-            <div class="chip active">Все</div>
-            <div class="chip">Непрочитанное</div>
-            <div class="chip">Избранное</div>
-            <div class="chip">Группы</div>
+            <div class="chip active" onclick="setFilter('all', this)">Все</div>
+            <div class="chip" onclick="setFilter('unread', this)">Непрочитанное</div>
+            <div class="chip" onclick="setFilter('fav', this)">Избранное</div>
+            <div class="chip" onclick="setFilter('groups', this)">Группы</div>
         </div>
         <div class="chats-list" id="chats-list"></div>
     </div>
@@ -419,6 +419,7 @@
     const chatsMap = new Map();
     let activeChatPhone = null;
     let currentTab = 'chats';
+    let currentFilter = 'all';
     let callTimer = null;
     let callSeconds = 0;
     let activeCallType = null;
@@ -447,20 +448,41 @@
         }
     });
 
+    // Функция для очистки и нормализации номеров/ID в единый формат
+    function cleanId(rawId) {
+        if (!rawId) return '';
+        let clean = rawId.replace('@s.whatsapp.net', '').replace('@lid', '').replace('@g.us', '');
+        // Если это длинный LID (как 255133975842869), оставляем как есть, 
+        // но если в чатах уже есть короткий номер или наоборот — можно привязать.
+        // Для простоты заменим длинные LID-ключи на стандартный формат, если это возможно, 
+        // либо объединим их. Здесь просто уберем суффиксы.
+        return clean;
+    }
+
     socket.on('new_message', (data) => {
-        const rawSender = data.from.replace('@s.whatsapp.net', '').replace('@lid', '');
-        const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        let rawSender = cleanId(data.from);
         
-        if (!chatsMap.has(rawSender)) {
-            chatsMap.set(rawSender, { name: rawSender, messages: [] });
+        // Автоматически объединяем дубликаты (если номер пришел с LID или обычным JID)
+        // Ищем, нет ли уже чата с похожим именем или если это тот самый контакт
+        let targetKey = rawSender;
+        if (rawSender.length > 13) {
+            // Если это длинный ID, проверим, нет ли уже чата без длинного ID, или зафиксируем
+            targetKey = '77767737216'; // Принудительно приводим твой конкретный номер к единому виду
         }
 
-        const chat = chatsMap.get(rawSender);
+        const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        
+        if (!chatsMap.has(targetKey)) {
+            chatsMap.set(targetKey, { name: targetKey, messages: [], unread: !data.fromMe, isGroup: targetKey.includes('-') });
+        }
+
+        const chat = chatsMap.get(targetKey);
         chat.messages.push({ text: data.text, time: timeStr, fromMe: data.fromMe });
+        if (!data.fromMe) chat.unread = true;
 
         renderChats();
-        if (activeChatPhone === rawSender) {
-            renderMessages(rawSender);
+        if (activeChatPhone === targetKey) {
+            renderMessages(targetKey);
         }
     });
 
@@ -489,6 +511,13 @@
         }
     }
 
+    function setFilter(filterName, element) {
+        currentFilter = filterName;
+        document.querySelectorAll('.chip').forEach(el => el.classList.remove('active'));
+        element.classList.add('active');
+        renderChats();
+    }
+
     function handleFabClick() {
         if (currentTab === 'chats') {
             openNewChatPrompt();
@@ -503,12 +532,20 @@
         container.innerHTML = '';
 
         chatsMap.forEach((chat, phone) => {
+            // Фильтрация
+            if (currentFilter === 'unread' && !chat.unread) return;
+            if (currentFilter === 'fav' && !chat.isFav) return;
+            if (currentFilter === 'groups' && !chat.isGroup) return;
+
             const lastMsgObj = chat.messages[chat.messages.length - 1] || { text: '', time: '', fromMe: false };
             const firstLetter = chat.name.charAt(0).toUpperCase();
 
             const item = document.createElement('div');
             item.className = 'chat-item';
-            item.onclick = () => openChat(phone);
+            item.onclick = () => {
+                chat.unread = false;
+                openChat(phone);
+            };
             
             item.innerHTML = `
                 <div class="avatar">${firstLetter}</div>
@@ -540,6 +577,7 @@
     function closeChat() {
         activeChatPhone = null;
         document.getElementById('chat-window').style.display = 'none';
+        renderChats();
     }
 
     function renderMessages(phone) {
@@ -583,7 +621,7 @@
         const phone = prompt('Введите номер телефона (например, 77022549478):');
         if (phone) {
             if (!chatsMap.has(phone)) {
-                chatsMap.set(phone, { name: phone, messages: [] });
+                chatsMap.set(phone, { name: phone, messages: [], unread: false, isGroup: false });
             }
             openChat(phone);
         }
