@@ -263,13 +263,13 @@
         .msg-time { font-size: 11px; color: #8696a0; float: right; margin-left: 10px; margin-top: 4px; display: inline-block; }
         .msg-bubble img { max-width: 100%; border-radius: 8px; margin-bottom: 4px; display: block; }
 
-        /* Чистый плеер без полос */
+        /* Полностью чистый аудио-плеер без лишних полос и рамок */
         .voice-player {
             display: flex;
             align-items: center;
             gap: 10px;
-            min-width: 180px;
-            padding: 2px 0;
+            min-width: 170px;
+            padding: 4px 0;
         }
         .voice-play-btn {
             width: 32px;
@@ -287,7 +287,7 @@
         }
         .voice-wave {
             flex: 1;
-            height: 20px;
+            height: 16px;
             display: flex;
             align-items: center;
             gap: 2px;
@@ -295,7 +295,7 @@
         .voice-bar {
             flex: 1;
             background: rgba(255,255,255,0.3);
-            height: 10px;
+            height: 8px;
             border-radius: 2px;
         }
         .voice-bar.active { background: #53bdeb; }
@@ -584,7 +584,7 @@
         if (!phone) return;
         const cleanPhone = phone.replace(/[^0-9]/g, '');
         if (!cleanPhone) return;
-        const name = prompt('Введите имя контакта:') || cleanPhone;
+        const name = prompt('Введите имя контакта (например, Екатерина):') || cleanPhone;
         addContact(cleanPhone, name);
     }
 
@@ -633,19 +633,19 @@
         }
     });
 
-    // Строго отсекаем ID: ищем соответствие входящего отправителя только среди сохраненных пользователем нормальных контактов
+    // ЖЕСТКИЙ ФИЛЬТР: Полностью блокируем любые ID. Ищем только среди сохраненных тобой контактов.
     function resolveSender(rawId) {
-        if (!rawId) return '';
+        if (!rawId) return null;
         let clean = rawId.replace('@s.whatsapp.net', '').replace('@lid', '').replace('@g.us', '').replace(/:.*/, '');
         
-        // Ищем среди уже добавленных контактов
+        // Проверяем, есть ли этот номер в добавленных тобой контактах
         let found = savedContacts.find(c => c.phone === clean || clean.includes(c.phone) || c.phone.includes(clean));
         if (found) {
             return found.phone;
         }
         
-        // Если это длинный технический ID (больше 12 цифр типа LID/JID без плюсов и привычного формата номеров), игнорируем его создание как отдельный контакт
-        if (clean.length > 12 && !clean.startsWith('7') && !clean.startsWith('3')) {
+        // Если это длинный системный ID (например, 15+ цифр идентификатора WhatsApp без нормального префикса страны) — отбрасываем навсегда
+        if (clean.length > 12 || /^[0-9]{13,}$/.test(clean)) {
             return null;
         }
         
@@ -665,7 +665,7 @@
 
     socket.on('new_message', (data) => {
         let targetKey = resolveSender(data.from);
-        if (!targetKey) return; // Пропускаем системные мусорные ID
+        if (!targetKey) return; // Если это системный ID — полностью игнорируем его
 
         let contact = savedContacts.find(c => c.phone === targetKey);
         let chatName = contact ? contact.name : targetKey;
@@ -739,7 +739,7 @@
         container.innerHTML = '';
 
         if (savedContacts.length === 0) {
-            container.innerHTML = `<div style="padding: 20px; text-align: center; color: #8696a0;">Нет сохраненных контактов.<br>Нажмите плюсик сверху, чтобы добавить.</div>`;
+            container.innerHTML = `<div style="padding: 20px; text-align: center; color: #8696a0;">Нет сохраненных контактов.<br>Нажмите плюсик сверху, чтобы добавить (например, Екатерину).</div>`;
             return;
         }
 
