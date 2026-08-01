@@ -5,313 +5,933 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>WhatsDoggy</title>
     <style>
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-        }
-        body, html {
-            width: 100%;
-            height: 100%;
-            overflow-x: hidden;
-            background-color: #111b21;
-            font-family: sans-serif;
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+        
+        html, body {
+            background-color: #0b141a !important;
+            color: #e9edef !important;
+            height: 100vh;
             display: flex;
             justify-content: center;
             align-items: center;
-        }
-        .phone-container {
-            width: 100%;
-            max-width: 400px;
-            height: 100%;
-            max-height: 800px;
-            background: #0b141a;
-            display: flex;
-            flex-direction: column;
-            border-radius: 0;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
             overflow: hidden;
         }
-        @media (min-width: 401px) {
-            .phone-container {
-                height: 90vh;
-                border-radius: 20px;
-            }
-        }
-        .chat-header {
-            background: #202c33;
-            color: #e9edef;
-            padding: 10px 15px;
+
+        #qr-screen {
+            background-color: #111b21;
+            padding: 40px;
+            border-radius: 16px;
+            text-align: center;
+            border: 1px solid #222d34;
+            max-width: 380px;
+            width: 90%;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
             display: flex;
+            flex-direction: column;
             align-items: center;
-            gap: 15px;
         }
-        .chat-avatar {
-            width: 40px;
-            height: 40px;
-            background: #00a884;
-            border-radius: 50%;
+        #qr-screen h2 { color: #00a884; margin-bottom: 10px; }
+        #qr-screen p { color: #8696a0; font-size: 14px; margin-bottom: 25px; line-height: 1.4; }
+        
+        .qr-box {
+            width: 240px;
+            height: 240px;
+            background: #fff;
+            padding: 10px;
+            border-radius: 12px;
+            margin: 0 auto;
             display: flex;
             align-items: center;
             justify-content: center;
-            color: white;
-            font-weight: bold;
         }
-        .chat-info h3 {
-            font-size: 16px;
-        }
-        .chat-messages {
-            flex: 1;
-            background: #0efe2; /* фоновый узор имитируется цветом */
+
+        #qr-image { width: 220px; height: 220px; display: none; border-radius: 4px; }
+        #qr-loader { color: #111b21; font-size: 14px; font-weight: 500; }
+
+        #app-screen {
+            width: 100%;
+            max-width: 420px;
+            height: 100vh;
+            max-height: 850px;
             background-color: #0b141a;
-            padding: 15px;
+            display: none;
+            flex-direction: column;
+            position: relative;
+            box-shadow: 0 0 20px rgba(0,0,0,0.8);
+            border-radius: 12px;
+            overflow: hidden;
+        }
+
+        .top-bar {
+            padding: 16px;
+            background-color: #0b141a;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .top-bar h1 { font-size: 22px; font-weight: 600; color: #e9edef; }
+        .top-icons { display: flex; gap: 15px; color: #aebac1; font-size: 20px; cursor: pointer; align-items: center; }
+
+        .filters {
+            display: flex;
+            gap: 8px;
+            padding: 0 16px 12px 16px;
+            overflow-x: auto;
+            scrollbar-width: none;
+        }
+        .filters::-webkit-scrollbar { display: none; }
+        
+        .chip {
+            background-color: #202c33;
+            color: #8696a0;
+            padding: 6px 16px;
+            border-radius: 18px;
+            font-size: 14px;
+            white-space: nowrap;
+            cursor: pointer;
+        }
+        .chip.active { background-color: #0c3b2e; color: #00a884; }
+
+        .tab-content { flex: 1; overflow-y: auto; display: none; flex-direction: column; }
+        .tab-content.active { display: flex; }
+
+        .chat-item {
+            display: flex;
+            align-items: center;
+            padding: 12px 16px;
+            gap: 14px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .chat-item:hover { background-color: #202c33; }
+        .avatar {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            background-color: #00a884;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            font-weight: bold;
+            color: #fff;
+            flex-shrink: 0;
+        }
+        .chat-info { flex: 1; border-bottom: 1px solid #1f2c34; padding-bottom: 12px; }
+        .chat-header { display: flex; justify-content: space-between; margin-bottom: 4px; }
+        .chat-name { font-size: 16px; font-weight: 500; color: #e9edef; }
+        .chat-time { font-size: 12px; color: #8696a0; }
+        .chat-last-msg { font-size: 14px; color: #8696a0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 250px; display: flex; align-items: center; gap: 4px; }
+        .ticks { color: #53bdeb; font-size: 14px; }
+
+        .settings-list { padding: 10px 0; }
+        .setting-item {
+            display: flex;
+            align-items: center;
+            padding: 14px 16px;
+            gap: 16px;
+            cursor: pointer;
+            border-bottom: 1px solid #1f2c34;
+        }
+        .setting-item:hover { background-color: #202c33; }
+        .setting-icon { font-size: 20px; color: #8696a0; width: 30px; text-align: center; }
+        .setting-title { font-size: 16px; color: #e9edef; margin-bottom: 2px; }
+        .setting-sub { font-size: 13px; color: #8696a0; }
+
+        .fab {
+            position: absolute;
+            bottom: 75px;
+            right: 16px;
+            width: 56px;
+            height: 56px;
+            background-color: #00a884;
+            border-radius: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #0b141a;
+            font-size: 24px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+            cursor: pointer;
+            z-index: 10;
+        }
+
+        .bottom-nav {
+            height: 65px;
+            background-color: #0b141a;
+            border-top: 1px solid #1f2c34;
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+        }
+        .nav-item { display: flex; flex-direction: column; align-items: center; gap: 4px; color: #8696a0; font-size: 11px; cursor: pointer; }
+        .nav-item.active { color: #e9edef; }
+        .nav-icon-wrapper { padding: 4px 14px; border-radius: 16px; font-size: 18px; }
+        .nav-item.active .nav-icon-wrapper { background-color: #103629; color: #25d366; }
+
+        /* Экран профиля */
+        #profile-screen {
+            display: none;
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background-color: #0b141a;
+            z-index: 25;
+            flex-direction: column;
+        }
+        .profile-header {
+            padding: 14px 16px;
+            background-color: #202c33;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+        .profile-avatar-big {
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            background-color: #00a884;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 50px;
+            font-weight: bold;
+            color: #fff;
+            margin: 30px auto;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+        }
+        .profile-field-group {
+            padding: 16px;
+            background-color: #111b21;
+            margin-bottom: 10px;
+            border-bottom: 1px solid #1f2c34;
+            border-top: 1px solid #1f2c34;
+        }
+        .profile-label { font-size: 13px; color: #00a884; margin-bottom: 6px; font-weight: 500; }
+        .profile-input {
+            width: 100%;
+            background: transparent;
+            border: none;
+            border-bottom: 2px solid #00a884;
+            color: #e9edef;
+            font-size: 16px;
+            padding: 6px 0;
+            outline: none;
+        }
+
+        #chat-window {
+            display: none;
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background-color: #0b141a;
+            z-index: 20;
+            flex-direction: column;
+        }
+        .chat-window-header {
+            padding: 10px 16px;
+            background-color: #202c33;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .chat-header-left { display: flex; align-items: center; gap: 12px; }
+        .back-btn { font-size: 22px; cursor: pointer; color: #aebac1; }
+        .chat-avatar-small { width: 40px; height: 40px; border-radius: 50%; background: #00a884; display: flex; align-items: center; justify-content: center; font-weight: bold; color: #fff; }
+        .chat-user-title { font-size: 16px; font-weight: 500; color: #e9edef; }
+        
+        .chat-messages-area {
+            flex: 1;
+            padding: 16px;
             overflow-y: auto;
+            background-color: #0b141a;
             display: flex;
             flex-direction: column;
-            gap: 10px;
+            gap: 8px;
         }
-        .message {
+
+        .msg-bubble {
             max-width: 75%;
             padding: 8px 12px;
-            border-radius: 8px;
-            font-size: 14px;
-            color: #e9edef;
+            border-radius: 12px;
+            font-size: 15px;
+            position: relative;
+            line-height: 1.4;
             word-wrap: break-word;
+            color: #e9edef;
         }
-        .message.incoming {
-            background: #202c33;
-            align-self: flex-start;
-        }
-        .message.outgoing {
-            background: #005c4b;
-            align-self: flex-end;
-        }
-        .chat-input-area {
-            background: #202c33;
-            padding: 10px;
+        .msg-incoming { background-color: #202c33; align-self: flex-start; border-top-left-radius: 0; }
+        .msg-outgoing { background-color: #005c4b; align-self: flex-end; border-top-right-radius: 0; }
+        .msg-time { font-size: 11px; color: #8696a0; float: right; margin-left: 10px; margin-top: 4px; }
+        .msg-bubble img { max-width: 100%; border-radius: 8px; margin-bottom: 4px; display: block; }
+
+        .chat-input-bar {
+            padding: 8px 12px;
+            background-color: #202c33;
             display: flex;
             align-items: center;
             gap: 10px;
-            width: 100%;
         }
-        .chat-input-area input[type="text"] {
+        .chat-input-container {
             flex: 1;
-            background: #2a3942;
-            border: none;
-            padding: 10px 15px;
+            background-color: #2a3942;
             border-radius: 20px;
-            color: #e9edef;
+            display: flex;
+            align-items: center;
+            padding: 8px 16px;
+            gap: 10px;
+        }
+        .chat-input-container input {
+            background: transparent;
+            border: none;
             outline: none;
-            font-size: 14px;
-        }
-        .btn-icon {
-            background: none;
-            border: none;
-            cursor: pointer;
-            font-size: 18px;
-            color: #8696a0;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        .btn-icon:hover {
             color: #e9edef;
-        }
-        .send-btn {
-            background: #00a884;
-            color: white;
-            border: none;
-            width: 40px;
-            height: 40px;
-            border-radius: 50%;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        #qr-overlay {
-            position: absolute;
-            top: 0;
-            left: 0;
             width: 100%;
-            height: 100%;
-            background: #111b21;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            z-index: 100;
-            color: white;
-            text-align: center;
-            padding: 20px;
+            font-size: 15px;
         }
-        #qr-overlay img {
-            width: 250px;
-            height: 250px;
-            background: white;
-            padding: 10px;
-            border-radius: 10px;
-            margin-bottom: 20px;
+        .action-icon { cursor: pointer; font-size: 18px; color: #aebac1; }
+        .send-btn-circle {
+            width: 45px;
+            height: 45px;
+            background-color: #00a884;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #0b141a;
+            font-size: 20px;
+            cursor: pointer;
+            border: none;
+            flex-shrink: 0;
+        }
+        .recording-indicator {
+            color: #ea0038;
+            font-weight: bold;
+            animation: pulse 1s infinite;
+        }
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
+
+        #call-screen {
+            display: none;
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background-color: #0d1418;
+            z-index: 30;
+            flex-direction: column;
+            align-items: center;
+            justify-content: space-between;
+            padding: 60px 20px 40px 20px;
+        }
+        .call-user-info { text-align: center; }
+        .call-avatar { width: 100px; height: 100px; border-radius: 50%; background: #00a884; margin: 20px auto; display: flex; align-items: center; justify-content: center; font-size: 40px; font-weight: bold; color: #fff; }
+        .call-status { color: #8696a0; margin-top: 8px; font-size: 15px; }
+        .call-controls { display: flex; gap: 20px; }
+        .call-btn { width: 60px; height: 60px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 22px; cursor: pointer; border: none; }
+        .call-btn-end { background-color: #ea0038; color: #fff; }
+        .call-btn-opt { background-color: #202c33; color: #e9edef; }
+
+        @media (min-width: 768px) {
+            #app-screen {
+                max-width: 850px;
+                height: 90vh;
+                border: 1px solid #222d34;
+            }
         }
     </style>
 </head>
 <body>
 
-    <div class="phone-container">
-        <!-- Экран QR-кода -->
-        <div id="qr-overlay">
-            <h2>Авторизация WhatsApp</h2>
-            <p style="margin-bottom: 20px; color: #8696a0;">Сканируйте QR-код в приложении WhatsApp</p>
-            <img id="qr-img" src="" alt="Загрузка QR-кода...">
-        </div>
+<div id="qr-screen">
+    <h2>Вход в WhatsDoggy</h2>
+    <p>Откройте WhatsApp на телефоне<br><b>Связанные устройства → Привязка устройства</b></p>
+    <div class="qr-box">
+        <div id="qr-loader">Генерация QR-кода...</div>
+        <img id="qr-image" src="" alt="QR Code">
+    </div>
+</div>
 
-        <!-- Шапка чата -->
-        <div class="chat-header">
-            <div class="chat-avatar">Г</div>
-            <div class="chat-info">
-                <h3>Глеб</h3>
-                <span style="font-size: 12px; color: #8696a0;" id="status-text">Подключение...</span>
-            </div>
-        </div>
-
-        <!-- Список сообщений -->
-        <div class="chat-messages" id="messages"></div>
-
-        <!-- Панель ввода -->
-        <div class="chat-input-area">
-            <input type="file" id="image-input" accept="image/*" style="display: none;">
-            
-            <button class="btn-icon" onclick="document.getElementById('image-input').click()" title="Отправить фото">📷</button>
-            <button class="btn-icon" id="mic-btn" title="Записать голосовое">🎤</button>
-            
-            <input type="text" id="message-input" placeholder="Сообщение" onkeydown="if(event.key === 'Enter') sendMessage()">
-            <button class="send-btn" onclick="sendMessage()">➤</button>
+<div id="app-screen">
+    <div class="top-bar">
+        <h1 id="page-title">WhatsDoggy</h1>
+        <div class="top-icons">
+            <span onclick="openNewContactPrompt()" title="Добавить контакт" style="font-size: 18px; cursor: pointer;">➕👤</span>
+            <span onclick="alert('Камера пока не подключена')">📷</span>
+            <span onclick="switchTab('settings')">⋮</span>
         </div>
     </div>
 
-    <script src="/socket.io/socket.io.js"></script>
-    <script>
-        const socket = io();
-        const targetNumber = "77055553333"; // Замени на нужный номер, если требуется
+    <!-- Вкладка 1: Чаты -->
+    <div id="tab-chats" class="tab-content active">
+        <div class="filters">
+            <div class="chip active" onclick="setFilter('all', this)">Все</div>
+            <div class="chip" onclick="setFilter('unread', this)">Непрочитанное</div>
+            <div class="chip" onclick="setFilter('fav', this)">Избранное</div>
+            <div class="chip" onclick="setFilter('groups', this)">Группы</div>
+        </div>
+        <div class="chats-list" id="chats-list"></div>
+    </div>
+
+    <!-- Вкладка 2: Контакты -->
+    <div id="tab-contacts" class="tab-content">
+        <div class="settings-list" id="contacts-list"></div>
+    </div>
+
+    <!-- Вкладка 3: Звонки -->
+    <div id="tab-calls" class="tab-content">
+        <div class="settings-list" id="calls-list">
+            <div style="padding: 20px; text-align: center; color: #8696a0;">
+                Здесь будет история вызовов.
+            </div>
+        </div>
+    </div>
+
+    <!-- Вкладка 4: Настройки -->
+    <div id="tab-settings" class="tab-content">
+        <div class="settings-list">
+            <div class="setting-item" onclick="openProfileScreen()">
+                <div class="avatar" id="settings-my-avatar" style="width: 55px; height: 55px; font-size: 20px;">U</div>
+                <div>
+                    <div class="setting-title" id="settings-my-name">Пользователь WhatsDoggy</div>
+                    <div class="setting-sub" id="settings-my-status">В сети</div>
+                </div>
+            </div>
+            <div class="setting-item" onclick="clearChatsOnly()">
+                <div class="setting-icon">🗑️</div>
+                <div>
+                    <div class="setting-title">Стереть все чаты</div>
+                    <div class="setting-sub">Очистить сообщения, сохранив контакты</div>
+                </div>
+            </div>
+            <div class="setting-item" onclick="logoutSession()">
+                <div class="setting-icon" style="color: #ea0038;">🚪</div>
+                <div>
+                    <div class="setting-title" style="color: #ea0038;">Выйти из WhatsApp</div>
+                    <div class="setting-sub">Отключить текущую сессию</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Экран редактирования профиля -->
+    <div id="profile-screen">
+        <div class="profile-header">
+            <span class="back-btn" onclick="closeProfileScreen()">←</span>
+            <span style="font-size: 18px; font-weight: 500;">Профиль</span>
+        </div>
+        <div class="profile-avatar-big" id="profile-big-avatar">U</div>
+        <div class="profile-field-group">
+            <div class="profile-label">Ваше имя</div>
+            <input type="text" id="profile-input-name" class="profile-input" placeholder="Введите имя..." oninput="saveProfileData()">
+        </div>
+        <div class="profile-field-group">
+            <div class="profile-label">О себе / Статус</div>
+            <input type="text" id="profile-input-status" class="profile-input" placeholder="Например: В сети" oninput="saveProfileData()">
+        </div>
+    </div>
+
+    <div class="fab" id="main-fab" onclick="handleFabClick()">💬</div>
+
+    <!-- Нижнее меню -->
+    <div class="bottom-nav">
+        <div class="nav-item active" id="nav-chats" onclick="switchTab('chats')">
+            <div class="nav-icon-wrapper">💬</div>
+            <span>Чаты</span>
+        </div>
+        <div class="nav-item" id="nav-contacts" onclick="switchTab('contacts')">
+            <div class="nav-icon-wrapper">📖</div>
+            <span>Контакты</span>
+        </div>
+        <div class="nav-item" id="nav-calls" onclick="switchTab('calls')">
+            <div class="nav-icon-wrapper">📞</div>
+            <span>Звонки</span>
+        </div>
+        <div class="nav-item" id="nav-settings" onclick="switchTab('settings')">
+            <div class="nav-icon-wrapper">⚙️</div>
+            <span>Настройки</span>
+        </div>
+    </div>
+
+    <!-- Окно чата -->
+    <div id="chat-window">
+        <div class="chat-window-header">
+            <div class="chat-header-left">
+                <span class="back-btn" onclick="closeChat()">←</span>
+                <div class="chat-avatar-small" id="chat-avatar">?</div>
+                <div class="chat-user-title" id="chat-title">Чат</div>
+            </div>
+            <div class="top-icons">
+                <span onclick="startCall(activeChatPhone, true)">📹</span>
+                <span onclick="startCall(activeChatPhone, false)">📞</span>
+                <span onclick="alert('Опции чата')">⋮</span>
+            </div>
+        </div>
+
+        <div class="chat-messages-area" id="chat-messages"></div>
+
+        <div class="chat-input-bar">
+            <div class="chat-input-container">
+                <span class="action-icon" title="Эмодзи">😊</span>
+                <input type="text" id="chat-input" placeholder="Сообщение" onkeydown="if(event.key==='Enter') sendMessage()">
+                <span class="action-icon" title="Прикрепить фото из галереи" onclick="document.getElementById('image-input').click()">📁</span>
+                <span class="action-icon" title="Сделать фото с камеры" onclick="document.getElementById('camera-input').click()">📷</span>
+            </div>
+            <!-- Скрытые инпуты для выбора файлов и камеры -->
+            <input type="file" id="image-input" accept="image/*" style="display: none;" onchange="handleImageUpload(event)">
+            <input type="file" id="camera-input" accept="image/*" capture="environment" style="display: none;" onchange="handleImageUpload(event)">
+
+            <button class="send-btn-circle" id="mic-send-btn" onclick="handleMicClick()" title="Записать голосовое / Отправить текст">🎤</button>
+        </div>
+    </div>
+
+    <!-- Окно совершения звонка -->
+    <div id="call-screen">
+        <div class="call-user-info">
+            <h2 id="call-user-name" style="color: #e9edef;">Имя Контакта</h2>
+            <div class="call-status" id="call-status-text">Вызов...</div>
+            <div class="call-avatar" id="call-avatar-screen">?</div>
+        </div>
+        <div class="call-controls">
+            <button class="call-btn call-btn-opt" onclick="toggleMute()">🎙️</button>
+            <button class="call-btn call-btn-end" onclick="endCall()">📞</button>
+            <button class="call-btn call-btn-opt" onclick="toggleSpeaker()">🔊</button>
+        </div>
+    </div>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script>
+    const socket = io();
+    const chatsMap = new Map();
+    let savedContacts = JSON.parse(localStorage.getItem('doggy_contacts') || '[]');
+    let userProfile = JSON.parse(localStorage.getItem('doggy_profile') || JSON.stringify({ name: 'Пользователь WhatsDoggy', status: 'В сети' }));
+
+    let activeChatPhone = null;
+    let currentTab = 'chats';
+    let currentFilter = 'all';
+
+    // Переменные для записи голосовых
+    let mediaRecorder = null;
+    let audioChunks = [];
+    let isRecording = false;
+
+    function initProfileUI() {
+        document.getElementById('settings-my-name').innerText = userProfile.name;
+        document.getElementById('settings-my-status').innerText = userProfile.status;
         
-        let mediaRecorder;
-        let audioChunks = [];
-        let isRecording = false;
+        const firstLetter = userProfile.name.charAt(0).toUpperCase() || 'U';
+        document.getElementById('settings-my-avatar').innerText = firstLetter;
+        document.getElementById('profile-big-avatar').innerText = firstLetter;
+        
+        document.getElementById('profile-input-name').value = userProfile.name;
+        document.getElementById('profile-input-status').value = userProfile.status;
+    }
 
-        socket.on('qr_code', (url) => {
-            document.getElementById('qr-img').src = url;
-            document.getElementById('qr-overlay').style.display = 'flex';
-        });
+    function saveProfileData() {
+        const nameInput = document.getElementById('profile-input-name').value.trim();
+        const statusInput = document.getElementById('profile-input-status').value.trim();
 
-        socket.on('connection_status', (data) => {
-            if (data.connected) {
-                document.getElementById('qr-overlay').style.display = 'none';
-                document.getElementById('status-text').innerText = 'В сети';
-            } else {
-                document.getElementById('status-text').innerText = 'Ожидание сканирования QR';
+        userProfile.name = nameInput || 'WhatsDoggy User';
+        userProfile.status = statusInput || 'В сети';
+
+        localStorage.setItem('doggy_profile', JSON.stringify(userProfile));
+        initProfileUI();
+    }
+
+    function openProfileScreen() {
+        const profileScreen = document.getElementById('profile-screen');
+        if (profileScreen) profileScreen.style.display = 'flex';
+    }
+
+    function closeProfileScreen() {
+        const profileScreen = document.getElementById('profile-screen');
+        if (profileScreen) profileScreen.style.display = 'none';
+    }
+
+    function openNewContactPrompt() {
+        const phone = prompt('Введите номер телефона (например, 77055553333):');
+        if (!phone) return;
+        const name = prompt('Введите имя контакта:') || phone;
+        addContact(phone, name);
+    }
+
+    function clearChatsOnly() {
+        if (confirm('Очистить все чаты?')) {
+            chatsMap.clear();
+            renderChats();
+            alert('Чаты очищены');
+        }
+    }
+
+    async function logoutSession() {
+        if (confirm('Выйти из WhatsApp?')) {
+            try {
+                await fetch('/api/logout', { method: 'POST' });
+                location.reload();
+            } catch (e) {
+                console.error(e);
             }
-        });
+        }
+    }
 
-        socket.on('new_message', (data) => {
-            appendMessage(data.text, data.fromMe ? 'outgoing' : 'incoming', data.type);
-        });
+    socket.on('connect', () => {
+        socket.emit('check_status');
+    });
 
-        function appendMessage(text, typeClass, msgType) {
-            const container = document.getElementById('messages');
-            const div = document.createElement('div');
-            div.className = `message ${typeClass}`;
-            
-            if (msgType === 'image') {
-                div.innerHTML = `<img src="${text}" style="max-width:100%; border-radius:5px;">`;
-            } else if (msgType === 'audio') {
-                div.innerHTML = `<audio controls src="${text}" style="max-width:200px;"></audio>`;
-            } else {
-                div.innerText = text;
-            }
-            
-            container.appendChild(div);
-            container.scrollTop = container.scrollHeight;
+    socket.on('qr_code', (qrUrl) => {
+        document.getElementById('qr-screen').style.display = 'flex';
+        document.getElementById('app-screen').style.display = 'none';
+        const img = document.getElementById('qr-image');
+        const loader = document.getElementById('qr-loader');
+        img.src = qrUrl;
+        img.style.display = 'block';
+        if (loader) loader.style.display = 'none';
+    });
+
+    socket.on('connection_status', (data) => {
+        if (data.connected) {
+            document.getElementById('qr-screen').style.display = 'none';
+            document.getElementById('app-screen').style.display = 'flex';
+            renderContacts();
+            initProfileUI();
+        } else {
+            document.getElementById('qr-screen').style.display = 'flex';
+            document.getElementById('app-screen').style.display = 'none';
+        }
+    });
+
+    function cleanId(rawId) {
+        if (!rawId) return '';
+        return rawId.replace('@s.whatsapp.net', '').replace('@lid', '').replace('@g.us', '');
+    }
+
+    function addContact(phone, name = '') {
+        let clean = cleanId(phone);
+        if (!clean) return;
+        let displayName = name ? name : clean;
+        
+        if (!savedContacts.some(c => c.phone === clean)) {
+            savedContacts.push({ phone: clean, name: displayName });
+            localStorage.setItem('doggy_contacts', JSON.stringify(savedContacts));
+            renderContacts();
+        }
+    }
+
+    socket.on('new_message', (data) => {
+        let rawSender = cleanId(data.from);
+        let targetKey = rawSender || '77055553333';
+
+        addContact(targetKey);
+        const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        
+        if (!chatsMap.has(targetKey)) {
+            let contact = savedContacts.find(c => c.phone === targetKey);
+            let chatName = contact ? contact.name : targetKey;
+            chatsMap.set(targetKey, { name: chatName, messages: [], unread: !data.fromMe, isGroup: targetKey.includes('-') });
         }
 
-        function sendMessage() {
-            const input = document.getElementById('message-input');
-            const text = input.value.trim();
-            if (!text) return;
+        const chat = chatsMap.get(targetKey);
+        chat.messages.push({ text: data.text, time: timeStr, fromMe: data.fromMe, type: data.type || 'text' });
+        if (!data.fromMe) chat.unread = true;
 
-            fetch('/api/send', {
+        renderChats();
+        if (activeChatPhone === targetKey) {
+            renderMessages(targetKey);
+        }
+    });
+
+    function switchTab(tabName) {
+        currentTab = tabName;
+        document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+        document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+
+        document.getElementById(`tab-${tabName}`).classList.add('active');
+        document.getElementById(`nav-${tabName}`).classList.add('active');
+
+        const fab = document.getElementById('main-fab');
+        const title = document.getElementById('page-title');
+
+        closeProfileScreen();
+
+        if (tabName === 'chats') {
+            title.innerText = 'WhatsDoggy';
+            fab.innerText = '💬';
+            fab.style.display = 'flex';
+        } else if (tabName === 'contacts') {
+            title.innerText = 'Контакты';
+            fab.innerText = '➕';
+            fab.style.display = 'flex';
+            renderContacts();
+        } else if (tabName === 'calls') {
+            title.innerText = 'Звонки';
+            fab.innerText = '📞';
+            fab.style.display = 'flex';
+        } else if (tabName === 'settings') {
+            title.innerText = 'Настройки';
+            fab.style.display = 'none';
+        }
+    }
+
+    function setFilter(filterName, element) {
+        currentFilter = filterName;
+        document.querySelectorAll('.chip').forEach(el => el.classList.remove('active'));
+        element.classList.add('active');
+        renderChats();
+    }
+
+    function handleFabClick() {
+        if (currentTab === 'chats' || currentTab === 'contacts') {
+            openNewContactPrompt();
+        } else if (currentTab === 'calls') {
+            const phone = prompt('Введите номер для звонка:');
+            if (phone) startCall(phone, false);
+        }
+    }
+
+    function renderContacts() {
+        const container = document.getElementById('contacts-list');
+        container.innerHTML = '';
+
+        if (savedContacts.length === 0) {
+            container.innerHTML = `<div style="padding: 20px; text-align: center; color: #8696a0;">Нет сохраненных контактов.<br>Нажмите плюсик сверху, чтобы добавить.</div>`;
+            return;
+        }
+
+        savedContacts.forEach(contact => {
+            const item = document.createElement('div');
+            item.className = 'chat-item';
+            item.onclick = () => openChat(contact.phone);
+            
+            item.innerHTML = `
+                <div class="avatar">${contact.name.charAt(0).toUpperCase()}</div>
+                <div class="chat-info">
+                    <div class="chat-header">
+                        <span class="chat-name">${contact.name}</span>
+                    </div>
+                    <div class="chat-last-msg">
+                        <span>${contact.phone}</span>
+                    </div>
+                </div>
+            `;
+            container.appendChild(item);
+        });
+    }
+
+    function renderChats() {
+        const container = document.getElementById('chats-list');
+        container.innerHTML = '';
+
+        chatsMap.forEach((chat, phone) => {
+            if (currentFilter === 'unread' && !chat.unread) return;
+            if (currentFilter === 'fav' && !chat.isFav) return;
+            if (currentFilter === 'groups' && !chat.isGroup) return;
+
+            const lastMsgObj = chat.messages[chat.messages.length - 1] || { text: '', time: '', fromMe: false, type: 'text' };
+            const firstLetter = chat.name.charAt(0).toUpperCase();
+
+            let previewText = lastMsgObj.text;
+            if (lastMsgObj.type === 'image') previewText = '📷 Фото';
+            if (lastMsgObj.type === 'audio') previewText = '🎤 Голосовое сообщение';
+
+            const item = document.createElement('div');
+            item.className = 'chat-item';
+            item.onclick = () => {
+                chat.unread = false;
+                openChat(phone);
+            };
+            
+            item.innerHTML = `
+                <div class="avatar">${firstLetter}</div>
+                <div class="chat-info">
+                    <div class="chat-header">
+                        <span class="chat-name">${chat.name}</span>
+                        <span class="chat-time">${lastMsgObj.time}</span>
+                    </div>
+                    <div class="chat-last-msg">
+                        ${lastMsgObj.fromMe ? '<span class="ticks">✓✓</span>' : ''}
+                        <span>${previewText}</span>
+                    </div>
+                </div>
+            `;
+            container.prepend(item);
+        });
+    }
+
+    function openChat(phone) {
+        activeChatPhone = phone;
+        let contact = savedContacts.find(c => c.phone === phone);
+        let chatName = contact ? contact.name : phone;
+
+        if (!chatsMap.has(phone)) {
+            chatsMap.set(phone, { name: chatName, messages: [], unread: false, isGroup: false });
+        }
+        
+        document.getElementById('chat-title').innerText = chatName;
+        document.getElementById('chat-avatar').innerText = chatName.charAt(0).toUpperCase();
+        document.getElementById('chat-window').style.display = 'flex';
+        renderMessages(phone);
+    }
+
+    function closeChat() {
+        activeChatPhone = null;
+        document.getElementById('chat-window').style.display = 'none';
+        renderChats();
+    }
+
+    function renderMessages(phone) {
+        const container = document.getElementById('chat-messages');
+        container.innerHTML = '';
+        
+        const chat = chatsMap.get(phone);
+        if (!chat) return;
+
+        chat.messages.forEach(msg => {
+            const bubble = document.createElement('div');
+            bubble.className = `msg-bubble ${msg.fromMe ? 'msg-outgoing' : 'msg-incoming'}`;
+            
+            let contentHtml = '';
+            if (msg.type === 'image') {
+                contentHtml = `<img src="${msg.text}" alt="Фото">`;
+            } else if (msg.type === 'audio') {
+                contentHtml = `<audio controls src="${msg.text}" style="max-width: 200px; height: 35px;"></audio>`;
+            } else {
+                contentHtml = msg.text;
+            }
+
+            bubble.innerHTML = `
+                ${contentHtml}
+                <span class="msg-time">${msg.time} ${msg.fromMe ? '<span class="ticks">✓✓</span>' : ''}</span>
+            `;
+            container.appendChild(bubble);
+        });
+        container.scrollTop = container.scrollHeight;
+    }
+
+    async function sendMessage() {
+        const input = document.getElementById('chat-input');
+        const text = input.value.trim();
+        if (!text || !activeChatPhone) return;
+
+        input.value = '';
+        const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+        const chat = chatsMap.get(activeChatPhone);
+        if (chat) {
+            chat.messages.push({ text: text, time: timeStr, fromMe: true, type: 'text' });
+            renderMessages(activeChatPhone);
+            renderChats();
+        }
+
+        try {
+            await fetch('/api/send', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ number: targetNumber, message: text })
-            }).then(res => {
-                if (res.ok) {
-                    appendMessage(text, 'outgoing', 'text');
-                    input.value = '';
-                }
+                body: JSON.stringify({ number: activeChatPhone, message: text })
             });
+        } catch (err) {
+            console.error('Ошибка:', err);
         }
+    }
 
-        // Отправка фото
-        document.getElementById('image-input').addEventListener('change', function(e) {
-            const file = e.target.files[0];
-            if (!file) return;
+    function handleImageUpload(event) {
+        const file = event.target.files[0];
+        if (!file || !activeChatPhone) return;
 
-            const reader = new FileReader();
-            reader.onload = function(event) {
-                const base64Image = event.target.result;
-                fetch('/api/send', {
+        const reader = new FileReader();
+        reader.onload = async function(e) {
+            const base64Data = e.target.result;
+            const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+            const chat = chatsMap.get(activeChatPhone);
+            if (chat) {
+                chat.messages.push({ text: base64Data, time: timeStr, fromMe: true, type: 'image' });
+                renderMessages(activeChatPhone);
+                renderChats();
+            }
+
+            try {
+                await fetch('/api/send', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ number: targetNumber, media: base64Image, type: 'image', message: 'Фото' })
-                }).then(res => {
-                    if (res.ok) appendMessage(base64Image, 'outgoing', 'image');
+                    body: JSON.stringify({ number: activeChatPhone, media: base64Data, type: 'image', message: 'Фото' })
                 });
-            };
-            reader.readAsDataURL(file);
-        });
-
-        // Запись голосовых
-        const micBtn = document.getElementById('mic-btn');
-        micBtn.onclick = async () => {
-            if (!isRecording) {
-                try {
-                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                    mediaRecorder = new MediaRecorder(stream);
-                    audioChunks = [];
-
-                    mediaRecorder.ondataavailable = event => {
-                        audioChunks.push(event.data);
-                    };
-
-                    mediaRecorder.onstop = () => {
-                        const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
-                        const reader = new FileReader();
-                        reader.onload = function(event) {
-                            const base64Audio = event.target.result;
-                            fetch('/api/send', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ number: targetNumber, media: base64Audio, type: 'audio' })
-                            }).then(res => {
-                                if (res.ok) appendMessage(base64Audio, 'outgoing', 'audio');
-                            });
-                        };
-                        reader.readAsDataURL(audioBlob);
-                    };
-
-                    mediaRecorder.start();
-                    isRecording = true;
-                    micBtn.style.color = '#00a884'; // Подсветка кнопки записи
-                } catch (err) {
-                    alert('Нет доступа к микрофону!');
-                }
-            } else {
-                mediaRecorder.stop();
-                isRecording = false;
-                micBtn.style.color = '#8696a0';
+            } catch (err) {
+                console.error('Ошибка отправки фото:', err);
             }
         };
+        reader.readAsDataURL(file);
+    }
 
-        socket.emit('check_status');
-    </script>
+    // Рабочая функция записи и отправки голосовых сообщений
+    async function handleMicClick() {
+        const micBtn = document.getElementById('mic-send-btn');
+        if (!activeChatPhone) return;
+
+        if (!isRecording) {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                mediaRecorder = new MediaRecorder(stream);
+                audioChunks = [];
+
+                mediaRecorder.ondataavailable = event => {
+                    audioChunks.push(event.data);
+                };
+
+                mediaRecorder.onstop = async () => {
+                    const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                    const reader = new FileReader();
+                    
+                    reader.onload = async function(event) {
+                        const base64Audio = event.target.result;
+                        const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+                        const chat = chatsMap.get(activeChatPhone);
+                        if (chat) {
+                            chat.messages.push({ text: base64Audio, time: timeStr, fromMe: true, type: 'audio' });
+                            renderMessages(activeChatPhone);
+                            renderChats();
+                        }
+
+                        try {
+                            await fetch('/api/send', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ number: activeChatPhone, media: base64Audio, type: 'audio' })
+                            });
+                        } catch (err) {
+                            console.error('Ошибка отправки аудио:', err);
+                        }
+                    };
+                    reader.readAsDataURL(audioBlob);
+                };
+
+                mediaRecorder.start();
+                isRecording = true;
+                micBtn.style.backgroundColor = '#ea0038';
+                micBtn.classList.add('recording-indicator');
+            } catch (err) {
+                alert('Нет доступа к микрофону!');
+            }
+        } else {
+            mediaRecorder.stop();
+            isRecording = false;
+            micBtn.style.backgroundColor = '#00a884';
+            micBtn.classList.remove('recording-indicator');
+        }
+    }
+
+    function startCall(phone, isVideo) {
+        if (!phone) return;
+        activeCallType = isVideo ? 'Видеовызов' : 'Звонок';
+        document.getElementById('call-user-name').innerText = phone;
+        document.getElementById('call-status-text').innerText = 'Вызов...';
+        document.getElementById('call-avatar-screen').innerText = phone.charAt(0).toUpperCase();
+        document.getElementById('call-screen').style.display = 'flex';
+    }
+
+    function endCall() {
+        document.getElementById('call-screen').style.display = 'none';
+    }
+
+    function toggleMute() { alert('Микрофон выключен'); }
+    function toggleSpeaker() { alert('Громкая связь переключена'); }
+</script>
 </body>
 </html>
