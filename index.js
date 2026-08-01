@@ -1,7 +1,7 @@
 import express from 'express';
 import http from 'http';
 import { Server } from 'socket.io';
-import makeWASocket, { useMultiFileAuthState, DisconnectReason, makeInMemoryStore } from '@whiskeysockets/baileys';
+import makeWASocket, { useMultiFileAuthState, DisconnectReason } from '@whiskeysockets/baileys';
 import { MongoClient } from 'mongodb';
 import qrcode from 'qrcode';
 import path from 'path';
@@ -24,7 +24,6 @@ let qrCodeData = null;
 let isConnected = false;
 
 async function startWhatsApp() {
-    // Используем временную или локальную папку для авторизации Baileys (можно заменить на MongoDB при желании)
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
 
     sock = makeWASocket({
@@ -120,7 +119,6 @@ app.post('/api/send', async (req, res) => {
                     caption: message || '' 
                 });
             } else if (type === 'audio') {
-                // Отправка аудио как голосового сообщения в Baileys
                 await sock.sendMessage(jid, { 
                     audio: buffer, 
                     mimetype: 'audio/mp4', 
