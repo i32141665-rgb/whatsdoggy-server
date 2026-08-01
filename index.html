@@ -263,22 +263,22 @@
         .msg-time { font-size: 11px; color: #8696a0; float: right; margin-left: 10px; margin-top: 4px; display: inline-block; }
         .msg-bubble img { max-width: 100%; border-radius: 8px; margin-bottom: 4px; display: block; }
 
-        /* Стильный аудиоплеер без лишних полос */
+        /* Чистый плеер без полос */
         .voice-player {
             display: flex;
             align-items: center;
             gap: 10px;
-            min-width: 200px;
-            padding: 4px 0;
+            min-width: 180px;
+            padding: 2px 0;
         }
         .voice-play-btn {
-            width: 36px;
-            height: 36px;
+            width: 32px;
+            height: 32px;
             border-radius: 50%;
             background: #00a884;
             border: none;
             color: #fff;
-            font-size: 16px;
+            font-size: 14px;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -287,7 +287,7 @@
         }
         .voice-wave {
             flex: 1;
-            height: 24px;
+            height: 20px;
             display: flex;
             align-items: center;
             gap: 2px;
@@ -295,7 +295,7 @@
         .voice-bar {
             flex: 1;
             background: rgba(255,255,255,0.3);
-            height: 12px;
+            height: 10px;
             border-radius: 2px;
         }
         .voice-bar.active { background: #53bdeb; }
@@ -582,8 +582,10 @@
     function openNewContactPrompt() {
         const phone = prompt('Введите номер телефона (например, 77767737216):');
         if (!phone) return;
-        const name = prompt('Введите имя контакта:') || phone;
-        addContact(phone, name);
+        const cleanPhone = phone.replace(/[^0-9]/g, '');
+        if (!cleanPhone) return;
+        const name = prompt('Введите имя контакта:') || cleanPhone;
+        addContact(cleanPhone, name);
     }
 
     function clearChatsOnly() {
@@ -631,18 +633,22 @@
         }
     });
 
-    // Улучшенная функция фильтрации ID: если контакт уже сохранен по номеру, сопоставляем по нему, исключая технические мусорные ID
-    function cleanId(rawId) {
+    // Строго отсекаем ID: ищем соответствие входящего отправителя только среди сохраненных пользователем нормальных контактов
+    function resolveSender(rawId) {
         if (!rawId) return '';
         let clean = rawId.replace('@s.whatsapp.net', '').replace('@lid', '').replace('@g.us', '').replace(/:.*/, '');
         
-        // Если это длинный технический ID, но у нас в сохраненных есть контакт с таким же окончанием или под этот номер, пытаемся найти совпадение
-        let found = savedContacts.find(c => c.phone === clean || clean.endsWith(c.phone) || c.phone.endsWith(clean));
+        // Ищем среди уже добавленных контактов
+        let found = savedContacts.find(c => c.phone === clean || clean.includes(c.phone) || c.phone.includes(clean));
         if (found) {
             return found.phone;
         }
         
-        // Если это длинный бессмысленный технический ID из цифр больше 12 символов без плюсов и похожий на LID, попробуем не создавать для него отдельный мусорный чат, если есть основной контакт, либо оставляем как есть, но лучше привязывать
+        // Если это длинный технический ID (больше 12 цифр типа LID/JID без плюсов и привычного формата номеров), игнорируем его создание как отдельный контакт
+        if (clean.length > 12 && !clean.startsWith('7') && !clean.startsWith('3')) {
+            return null;
+        }
+        
         return clean;
     }
 
@@ -651,7 +657,6 @@
         if (!clean) return;
         let displayName = name ? name : clean;
         
-        // Удаляем старую запись если была
         savedContacts = savedContacts.filter(c => c.phone !== clean);
         savedContacts.push({ phone: clean, name: displayName });
         localStorage.setItem('doggy_contacts', JSON.stringify(savedContacts));
@@ -659,30 +664,25 @@
     }
 
     socket.on('new_message', (data) => {
-        let rawSender = cleanId(data.from);
-        if (!rawSender) return;
+        let targetKey = resolveSender(data.from);
+        if (!targetKey) return; // Пропускаем системные мусорные ID
 
-        // Автоматически добавляем контакт, если его еще нет
-        if (!savedContacts.some(c => c.phone === rawSender)) {
-            savedContacts.push({ phone: rawSender, name: rawSender });
-            localStorage.setItem('doggy_contacts', JSON.stringify(savedContacts));
-        }
+        let contact = savedContacts.find(c => c.phone === targetKey);
+        let chatName = contact ? contact.name : targetKey;
 
         const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         
-        if (!chatsMap.has(rawSender)) {
-            let contact = savedContacts.find(c => c.phone === rawSender);
-            let chatName = contact ? contact.name : rawSender;
-            chatsMap.set(rawSender, { name: chatName, messages: [], unread: !data.fromMe, isGroup: rawSender.includes('-') });
+        if (!chatsMap.has(targetKey)) {
+            chatsMap.set(targetKey, { name: chatName, messages: [], unread: !data.fromMe, isGroup: targetKey.includes('-') });
         }
 
-        const chat = chatsMap.get(rawSender);
+        const chat = chatsMap.get(targetKey);
         chat.messages.push({ text: data.text, time: timeStr, fromMe: data.fromMe, type: data.type || 'text' });
         if (!data.fromMe) chat.unread = true;
 
         renderChats();
-        if (activeChatPhone === rawSender) {
-            renderMessages(rawSender);
+        if (activeChatPhone === targetKey) {
+            renderMessages(targetKey);
         }
     });
 
@@ -824,7 +824,6 @@
         renderChats();
     }
 
-    // Кастомный рендер сообщений с красивым плеером без полос
     function renderMessages(phone) {
         const container = document.getElementById('chat-messages');
         container.innerHTML = '';
@@ -865,7 +864,6 @@
         container.scrollTop = container.scrollHeight;
     }
 
-    // Функция воспроизведения голосового без стандартного кривого плеера
     function playVoice(btn, audioSrc) {
         let audio = new Audio(audioSrc);
         if (btn.innerText === '▶') {
