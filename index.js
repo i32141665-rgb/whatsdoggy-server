@@ -1,4 +1,4 @@
-import makeWASocket, { useMultiFileAuthState, DisconnectReason } from '@whiskeysockets/baileys';
+import makeWASocket, { useMultiFileAuthState, DisconnectReason, downloadMediaMessage } from '@whiskeysockets/baileys';
 import express from 'express';
 import http from 'http';
 import { Server } from 'socket.io';
@@ -73,20 +73,18 @@ async function connectToWhatsApp() {
             } else if (msg.message?.audioMessage) {
                 messageType = 'audio';
                 try {
-                    const stream = await downloadMediaMessage(msg, 'buffer', {}, { logger: pino({ level: 'silent' }) });
-                    messageText = `data:audio/ogg;base64,${stream.toString('base64')}`;
-                } catch (err) {
-                    console.error('Ошибка скачивания входящего аудио:', err);
-                    messageText = '';
+                    const buffer = await downloadMediaMessage(msg, 'buffer', {}, { logger: pino({ level: 'silent' }) });
+                    messageText = `data:audio/ogg;base64,${buffer.toString('base64')}`;
+                } catch (e) {
+                    console.error('Ошибка загрузки аудио:', e);
                 }
             } else if (msg.message?.imageMessage) {
                 messageType = 'image';
                 try {
-                    const stream = await downloadMediaMessage(msg, 'buffer', {}, { logger: pino({ level: 'silent' }) });
-                    messageText = `data:image/jpeg;base64,${stream.toString('base64')}`;
-                } catch (err) {
-                    console.error('Ошибка скачивания входящего фото:', err);
-                    messageText = '';
+                    const buffer = await downloadMediaMessage(msg, 'buffer', {}, { logger: pino({ level: 'silent' }) });
+                    messageText = `data:image/jpeg;base64,${buffer.toString('base64')}`;
+                } catch (e) {
+                    console.error('Ошибка загрузки фото:', e);
                 }
             }
 
@@ -122,7 +120,7 @@ io.on('connection', (socket) => {
         }
     });
 
-    // Надежная обработка и отправка сообщений с поддержкой казахстанских номеров (+7)
+    // Обработка отправки с проверкой через onWhatsApp для точного JID казахстанских номеров
     socket.on('send_message', async (data) => {
         try {
             let cleanTo = data.to.replace(/\D/g, '').trim();
@@ -131,18 +129,22 @@ io.on('connection', (socket) => {
             } else if (cleanTo.length === 10) {
                 cleanTo = '7' + cleanTo;
             }
-            const jid = `${cleanTo}@s.whatsapp.net`;
+
+            // Проверяем через WhatsApp, зарегистрирован ли номер
+            const [result] = await sock.onWhatsApp(cleanTo);
+            const jid = result && result.exists ? result.jid : `${cleanTo}@s.whatsapp.net`;
 
             if (data.type === 'image') {
                 const buffer = Buffer.from(data.text.split(',')[1], 'base64');
                 await sock.sendMessage(jid, { image: buffer });
             } else if (data.type === 'audio') {
                 const buffer = Buffer.from(data.text.split(',')[1], 'base64');
+                // Отправляем как голосовое сообщение (ptt: true) с корректным pcm/mp4 контейнером
                 await sock.sendMessage(jid, { audio: buffer, mimetype: 'audio/mp4', ptt: true });
             } else {
                 await sock.sendMessage(jid, { text: data.text });
             }
-            console.log('Сообщение успешно отправлено на JID:', jid);
+            console.log('Успешно отправлено на:', jid);
         } catch (error) {
             console.error('Ошибка отправки сообщения:', error);
         }
