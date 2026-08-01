@@ -60,7 +60,7 @@ async function connectToWhatsApp() {
         const msg = m.messages[0];
         if (!msg.key.fromMe && m.type === 'notify') {
             const remoteJid = msg.key.remoteJid;
-            if (remoteJid.includes('@lid')) return;
+            if (remoteJid.includes('@lid') || remoteJid.includes('@g.us')) return;
 
             const senderPhone = remoteJid.replace('@s.whatsapp.net', '');
             let messageText = '';
@@ -74,7 +74,7 @@ async function connectToWhatsApp() {
                 messageType = 'audio';
                 try {
                     const buffer = await downloadMediaMessage(msg, 'buffer', {}, { logger: pino({ level: 'silent' }) });
-                    messageText = `data:audio/ogg;base64,${buffer.toString('base64')}`;
+                    messageText = `data:audio/mp4;base64,${buffer.toString('base64')}`;
                 } catch (e) {
                     console.error('Ошибка загрузки аудио:', e);
                 }
@@ -120,7 +120,7 @@ io.on('connection', (socket) => {
         }
     });
 
-    // Обработка отправки с проверкой через onWhatsApp для точного JID казахстанских номеров
+    // Отправка сообщений на реальный официальный WhatsApp
     socket.on('send_message', async (data) => {
         try {
             let cleanTo = data.to.replace(/\D/g, '').trim();
@@ -130,21 +130,24 @@ io.on('connection', (socket) => {
                 cleanTo = '7' + cleanTo;
             }
 
-            // Проверяем через WhatsApp, зарегистрирован ли номер
+            // Строго проверяем существование номера в официальной сети WhatsApp
             const [result] = await sock.onWhatsApp(cleanTo);
-            const jid = result && result.exists ? result.jid : `${cleanTo}@s.whatsapp.net`;
+            if (!result || !result.exists) {
+                console.error('Номер не зарегистрирован в WhatsApp:', cleanTo);
+                return;
+            }
+            const jid = result.jid;
 
             if (data.type === 'image') {
                 const buffer = Buffer.from(data.text.split(',')[1], 'base64');
                 await sock.sendMessage(jid, { image: buffer });
             } else if (data.type === 'audio') {
                 const buffer = Buffer.from(data.text.split(',')[1], 'base64');
-                // Отправляем как голосовое сообщение (ptt: true) с корректным pcm/mp4 контейнером
                 await sock.sendMessage(jid, { audio: buffer, mimetype: 'audio/mp4', ptt: true });
             } else {
                 await sock.sendMessage(jid, { text: data.text });
             }
-            console.log('Успешно отправлено на:', jid);
+            console.log('Успешно отправлено на официальный WhatsApp JID:', jid);
         } catch (error) {
             console.error('Ошибка отправки сообщения:', error);
         }
