@@ -262,13 +262,12 @@
         function switchTab(tabId, el) {
             document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
             document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-            
             document.getElementById('tab-' + tabId).classList.add('active');
             if (el) el.classList.add('active');
         }
 
         function handleFabClick() {
-            let phoneInput = prompt('Введите номер телефона (например, +77767737216):');
+            let phoneInput = prompt('Введите номер телефона (+7...):');
             if (!phoneInput) return;
             let nameInput = prompt('Введите имя контакта:', 'Контакт');
             if (!nameInput) nameInput = phoneInput;
@@ -397,6 +396,7 @@
             container.scrollTop = container.scrollHeight;
         }
 
+        // ОТПРАВКА ОБЫЧНОГО ТЕКСТА
         function sendMessage() {
             const input = document.getElementById('chat-input');
             const text = input.value.trim();
@@ -415,6 +415,7 @@
             renderChats();
         }
 
+        // ОТПРАВКА ИЗОБРАЖЕНИЯ
         function handleImageUpload(event) {
             const file = event.target.files[0];
             if (!file || !activeChatPhone) return;
@@ -433,6 +434,7 @@
             reader.readAsDataURL(file);
         }
 
+        // ЗАПИСЬ И ОТПРАВКА ГОЛОСОВОГО В MP3
         async function handleMicClick() {
             const micBtn = document.getElementById('mic-send-btn');
             if (!isRecording) {
@@ -449,6 +451,7 @@
                         reader.onload = function(e) {
                             const base64Audio = e.target.result;
                             socket.emit('send_message', { to: activeChatPhone, text: base64Audio, type: 'audio' });
+                            
                             const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
                             let chat = chatsMap.get(activeChatPhone);
                             if (chat) {
@@ -465,7 +468,7 @@
                     isRecording = true;
                     micBtn.classList.add('recording-indicator');
                 } catch (e) {
-                    alert('Нет доступа к микрофону');
+                    alert('Ошибка доступа к микрофону');
                 }
             } else {
                 mediaRecorder.stop();
