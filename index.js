@@ -14,7 +14,6 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
-// Раздаем статические файлы
 app.use(express.static(__dirname));
 
 let sock;
@@ -51,11 +50,8 @@ async function connectToWhatsApp() {
 
         if (connection === 'close') {
             const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
-            console.log('Соединение закрыто. Переподключение:', shouldReconnect);
             if (shouldReconnect) {
                 connectToWhatsApp();
-            } else {
-                console.log('Сессия завершена (Logged out). Удалите папку auth_info для нового входа.');
             }
         }
     });
@@ -63,7 +59,12 @@ async function connectToWhatsApp() {
     sock.ev.on('messages.upsert', async (m) => {
         const msg = m.messages[0];
         if (!msg.key.fromMe && m.type === 'notify') {
-            const senderPhone = msg.key.remoteJid.replace('@s.whatsapp.net', '');
+            const remoteJid = msg.key.remoteJid;
+            
+            // Игнорируем @lid системные чаты
+            if (remoteJid.includes('@lid')) return;
+
+            const senderPhone = remoteJid.replace('@s.whatsapp.net', '');
             let messageText = '';
             let messageType = 'text';
 
@@ -83,28 +84,23 @@ async function connectToWhatsApp() {
 }
 
 io.on('connection', (socket) => {
-    console.log('Клиент подключился по WebSocket');
-
     if (currentQr) {
         socket.emit('qr', { qr: currentQr });
     } else if (sock && sock.user) {
         socket.emit('ready');
     }
 
+    // Возвращаем пустой список контактов без тестовых друзей
     socket.on('get_contacts', async () => {
-        try {
-            const contactsList = [
-                { name: 'Тестовый друг', phone: '12345' }
-            ];
-            socket.emit('contacts', contactsList);
-        } catch (e) {
-            console.error('Ошибка получения контактов:', e);
-        }
+        socket.emit('contacts', []);
     });
 
     socket.on('send_message', async (data) => {
         try {
-            const jid = data.to.includes('@') ? data.to : `${data.to}@s.whatsapp.net`;
+            // Формируем правильный JID с суффиксом, чтобы сообщение точно доходило
+            let cleanTo = data.to.replace('@s.whatsapp.net', '').trim();
+            const jid = `${cleanTo}@s.whatsapp.net`;
+
             if (data.type === 'image') {
                 const buffer = Buffer.from(data.text.split(',')[1], 'base64');
                 await sock.sendMessage(jid, { image: buffer });
