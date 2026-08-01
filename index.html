@@ -261,6 +261,7 @@
         .msg-incoming { background-color: #202c33; align-self: flex-start; border-top-left-radius: 0; }
         .msg-outgoing { background-color: #005c4b; align-self: flex-end; border-top-right-radius: 0; }
         .msg-time { font-size: 11px; color: #8696a0; float: right; margin-left: 10px; margin-top: 4px; }
+        .msg-bubble img { max-width: 100%; border-radius: 8px; margin-bottom: 4px; display: block; }
 
         .chat-input-bar {
             padding: 8px 12px;
@@ -286,6 +287,7 @@
             width: 100%;
             font-size: 15px;
         }
+        .action-icon { cursor: pointer; font-size: 18px; color: #aebac1; }
         .send-btn-circle {
             width: 45px;
             height: 45px;
@@ -298,7 +300,14 @@
             font-size: 20px;
             cursor: pointer;
             border: none;
+            flex-shrink: 0;
         }
+        .recording-indicator {
+            color: #ea0038;
+            font-weight: bold;
+            animation: pulse 1s infinite;
+        }
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
 
         #call-screen {
             display: none;
@@ -459,11 +468,16 @@
 
         <div class="chat-input-bar">
             <div class="chat-input-container">
-                <span>😊</span>
+                <span class="action-icon" title="Эмодзи">😊</span>
                 <input type="text" id="chat-input" placeholder="Сообщение" onkeydown="if(event.key==='Enter') sendMessage()">
-                <span>📎</span>
+                <span class="action-icon" title="Прикрепить фото из галереи" onclick="document.getElementById('image-input').click()">📁</span>
+                <span class="action-icon" title="Сделать фото с камеры" onclick="document.getElementById('camera-input').click()">📷</span>
             </div>
-            <button class="send-btn-circle" onclick="sendMessage()">➤</button>
+            <!-- Скрытые инпуты для выбора файлов и камеры -->
+            <input type="file" id="image-input" accept="image/*" style="display: none;" onchange="handleImageUpload(event)">
+            <input type="file" id="camera-input" accept="image/*" capture="environment" style="display: none;" onchange="handleImageUpload(event)">
+
+            <button class="send-btn-circle" id="mic-send-btn" onclick="handleMicClick()" title="Записать голосовое / Отправить текст">🎤</button>
         </div>
     </div>
 
@@ -495,6 +509,11 @@
     let callTimer = null;
     let callSeconds = 0;
     let activeCallType = null;
+
+    // Переменные для записи голосовых
+    let mediaRecorder = null;
+    let audioChunks = [];
+    let isRecording = false;
 
     function initProfileUI() {
         document.getElementById('settings-my-name').innerText = userProfile.name;
@@ -594,7 +613,7 @@
         }
 
         const chat = chatsMap.get(targetKey);
-        chat.messages.push({ text: data.text, time: timeStr, fromMe: data.fromMe });
+        chat.messages.push({ text: data.text, time: timeStr, fromMe: data.fromMe, type: data.type || 'text' });
         if (!data.fromMe) chat.unread = true;
 
         renderChats();
@@ -689,8 +708,12 @@
             if (currentFilter === 'fav' && !chat.isFav) return;
             if (currentFilter === 'groups' && !chat.isGroup) return;
 
-            const lastMsgObj = chat.messages[chat.messages.length - 1] || { text: '', time: '', fromMe: false };
+            const lastMsgObj = chat.messages[chat.messages.length - 1] || { text: '', time: '', fromMe: false, type: 'text' };
             const firstLetter = chat.name.charAt(0).toUpperCase();
+
+            let previewText = lastMsgObj.text;
+            if (lastMsgObj.type === 'image') previewText = '📷 Фото';
+            if (lastMsgObj.type === 'audio') previewText = '🎤 Голосовое сообщение';
 
             const item = document.createElement('div');
             item.className = 'chat-item';
@@ -708,7 +731,7 @@
                     </div>
                     <div class="chat-last-msg">
                         ${lastMsgObj.fromMe ? '<span class="ticks">✓✓</span>' : ''}
-                        <span>${lastMsgObj.text}</span>
+                        <span>${previewText}</span>
                     </div>
                 </div>
             `;
@@ -747,8 +770,18 @@
         chat.messages.forEach(msg => {
             const bubble = document.createElement('div');
             bubble.className = `msg-bubble ${msg.fromMe ? 'msg-outgoing' : 'msg-incoming'}`;
+            
+            let contentHtml = '';
+            if (msg.type === 'image') {
+                contentHtml = `<img src="${msg.text}" alt="Фото">`;
+            } else if (msg.type === 'audio') {
+                contentHtml = `<audio controls src="${msg.text}" style="max-width: 200px; height: 35px;"></audio>`;
+            } else {
+                contentHtml = msg.text;
+            }
+
             bubble.innerHTML = `
-                ${msg.text}
+                ${contentHtml}
                 <span class="msg-time">${msg.time} ${msg.fromMe ? '<span class="ticks">✓✓</span>' : ''}</span>
             `;
             container.appendChild(bubble);
@@ -762,6 +795,14 @@
         if (!text || !activeChatPhone) return;
 
         input.value = '';
+        const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+        const chat = chatsMap.get(activeChatPhone);
+        if (chat) {
+            chat.messages.push({ text: text, time: timeStr, fromMe: true, type: 'text' });
+            renderMessages(activeChatPhone);
+            renderChats();
+        }
 
         try {
             await fetch('/api/send', {
@@ -771,6 +812,99 @@
             });
         } catch (err) {
             console.error('Ошибка:', err);
+        }
+    }
+
+    // Обработка загрузки или съемки фото
+    function handleImageUpload(event) {
+        const file = event.target.files[0];
+        if (!file || !activeChatPhone) return;
+
+        const reader = new FileReader();
+        reader.onload = async function(e) {
+            const base64Data = e.target.result;
+            const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+            const chat = chatsMap.get(activeChatPhone);
+            if (chat) {
+                chat.messages.push({ text: base64Data, time: timeStr, fromMe: true, type: 'image' });
+                renderMessages(activeChatPhone);
+                renderChats();
+            }
+
+            try {
+                await fetch('/api/send', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ number: activeChatPhone, message: '[Фотография]', media: base64Data, type: 'image' })
+                });
+            } catch (err) {
+                console.error('Ошибка отправки фото:', err);
+            }
+        };
+        reader.readAsDataURL(file);
+        event.target.value = ''; // Сброс инпута
+    }
+
+    // Управление кнопкой микрофона (Запись / Стоп)
+    async function handleMicClick() {
+        const micBtn = document.getElementById('mic-send-btn');
+        const input = document.getElementById('chat-input');
+
+        if (!isRecording) {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                mediaRecorder = new MediaRecorder(stream);
+                audioChunks = [];
+
+                mediaRecorder.ondataavailable = event => {
+                    audioChunks.push(event.data);
+                };
+
+                mediaRecorder.onstop = async () => {
+                    const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                    const reader = new FileReader();
+                    reader.onload = async function(e) {
+                        const base64Audio = e.target.result;
+                        const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+                        const chat = chatsMap.get(activeChatPhone);
+                        if (chat) {
+                            chat.messages.push({ text: base64Audio, time: timeStr, fromMe: true, type: 'audio' });
+                            renderMessages(activeChatPhone);
+                            renderChats();
+                        }
+
+                        try {
+                            await fetch('/api/send', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ number: activeChatPhone, message: '[Голосовое сообщение]', media: base64Audio, type: 'audio' })
+                            });
+                        } catch (err) {
+                            console.error('Ошибка отправки аудио:', err);
+                        }
+                    };
+                    reader.readAsDataURL(audioBlob);
+
+                    // Останавливаем дорожки потока микрофона
+                    stream.getTracks().forEach(track => track.stop());
+                };
+
+                mediaRecorder.start();
+                isRecording = true;
+                micBtn.style.backgroundColor = '#ea0038';
+                micBtn.innerText = '⏹️';
+                input.placeholder = '🔴 Запись голосового... (нажмите еще раз для отправки)';
+            } catch (err) {
+                alert('Не удалось получить доступ к микрофону: ' + err.message);
+            }
+        } else {
+            mediaRecorder.stop();
+            isRecording = false;
+            micBtn.style.backgroundColor = '#00a884';
+            micBtn.innerText = '🎤';
+            input.placeholder = 'Сообщение';
         }
     }
 
