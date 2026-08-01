@@ -12,11 +12,13 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server);
+const io = new Server(server, {
+    cors: { origin: "*" }
+});
 
 app.use(express.static(__dirname));
 
-let sock;
+let sock = null;
 let currentQr = null;
 
 async function connectToWhatsApp() {
@@ -25,7 +27,8 @@ async function connectToWhatsApp() {
     sock = makeWASocket({
         auth: state,
         logger: pino({ level: 'silent' }),
-        printQRInTerminal: false
+        printQRInTerminal: false,
+        browser: ["WhatsDoggy Web", "Chrome", "1.0.0"]
     });
 
     sock.ev.on('creds.update', saveCreds);
@@ -43,26 +46,32 @@ async function connectToWhatsApp() {
         }
 
         if (connection === 'open') {
-            console.log('WhatsDoggy подключен к официальной сети WhatsApp!');
+            console.log('WhatsDoggy успешно подключен к сети WhatsApp!');
             currentQr = null;
             io.emit('ready');
         }
 
         if (connection === 'close') {
-            const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
+            const statusCode = lastDisconnect?.error?.output?.statusCode;
+            const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+            console.log(`Соединение закрыто. Переподключение: ${shouldReconnect}`);
+            
             if (shouldReconnect) {
-                connectToWhatsApp();
+                setTimeout(() => connectToWhatsApp(), 3000);
             }
         }
     });
 
     sock.ev.on('messages.upsert', async (m) => {
-        const msg = m.messages[0];
-        if (!msg.key.fromMe && m.type === 'notify') {
-            const remoteJid = msg.key.remoteJid;
-            if (remoteJid.includes('@lid') || remoteJid.includes('@g.us')) return;
+        try {
+            const msg = m.messages[0];
+            if (!msg || !msg.message) return;
+            if (msg.key.fromMe) return;
 
-            const senderPhone = remoteJid.replace('@s.whatsapp.net', '');
+            const remoteJid = msg.key.remoteJid;
+            if (!remoteJid || remoteJid.includes('@lid') || remoteJid.includes('@g.us')) return;
+
+            const senderPhone = remoteJid.replace('@s.whatsapp.net', '').replace('@c.us', '');
             let messageText = '';
             let messageType = 'text';
 
@@ -72,27 +81,23 @@ async function connectToWhatsApp() {
                 messageText = msg.message.extendedTextMessage.text;
             } else if (msg.message?.audioMessage) {
                 messageType = 'audio';
-                try {
-                    const buffer = await downloadMediaMessage(msg, 'buffer', {}, { logger: pino({ level: 'silent' }) });
-                    messageText = `data:audio/mp3;base64,${buffer.toString('base64')}`;
-                } catch (e) {
-                    console.error('Ошибка приеме аудио:', e);
-                }
+                const buffer = await downloadMediaMessage(msg, 'buffer', {}, { logger: pino({ level: 'silent' }) });
+                messageText = `data:audio/mp3;base64,${buffer.toString('base64')}`;
             } else if (msg.message?.imageMessage) {
                 messageType = 'image';
-                try {
-                    const buffer = await downloadMediaMessage(msg, 'buffer', {}, { logger: pino({ level: 'silent' }) });
-                    messageText = `data:image/jpeg;base64,${buffer.toString('base64')}`;
-                } catch (e) {
-                    console.error('Ошибка приема фото:', e);
-                }
+                const buffer = await downloadMediaMessage(msg, 'buffer', {}, { logger: pino({ level: 'silent' }) });
+                messageText = `data:image/jpeg;base64,${buffer.toString('base64')}`;
             }
 
-            io.emit('message', {
-                from: senderPhone,
-                text: messageText,
-                type: messageType
-            });
+            if (messageText) {
+                io.emit('message', {
+                    from: senderPhone,
+                    text: messageText,
+                    type: messageType
+                });
+            }
+        } catch (err) {
+            console.error('Ошибка при обработке входящего сообщения:', err);
         }
     });
 }
@@ -104,35 +109,25 @@ io.on('connection', (socket) => {
         socket.emit('ready');
     }
 
-    socket.on('get_contacts', async () => {
-        try {
-            if (sock && sock.store && sock.store.contacts) {
-                const contactsArr = Object.values(sock.store.contacts).map(c => ({
-                    name: c.name || c.notify || c.id.replace('@s.whatsapp.net', ''),
-                    phone: c.id.replace('@s.whatsapp.net', '')
-                }));
-                socket.emit('contacts', contactsArr);
-            } else {
-                socket.emit('contacts', []);
-            }
-        } catch (e) {
-            socket.emit('contacts', []);
-        }
-    });
-
-    // ОПРЕДЕЛЕНИЕ JID И ОТПРАВКА НА ОФИЦИАЛЬНЫЙ WHATSAPP
+    // НАДЕЖНАЯ ОТПРАВКА СООБЩЕНИЙ
     socket.on('send_message', async (data) => {
+        if (!sock) {
+            console.error('Ошибка: Сокет WhatsApp не инициализирован!');
+            return;
+        }
+
         try {
-            let cleanTo = data.to.replace(/\D/g, '').trim();
-            if (cleanTo.startsWith('8') && cleanTo.length === 11) {
-                cleanTo = '7' + cleanTo.slice(1);
-            } else if (cleanTo.length === 10) {
-                cleanTo = '7' + cleanTo;
+            // Очищаем номер от всего кроме цифр
+            let cleanPhone = String(data.to).replace(/\D/g, '').trim();
+
+            if (cleanPhone.startsWith('8') && cleanPhone.length === 11) {
+                cleanPhone = '7' + cleanPhone.slice(1);
+            } else if (cleanPhone.length === 10) {
+                cleanPhone = '7' + cleanPhone;
             }
 
-            // Находим точный JID получателя
-            const [result] = await sock.onWhatsApp(cleanTo);
-            const jid = result && result.exists ? result.jid : `${cleanTo}@s.whatsapp.net`;
+            // Формируем чистый JID
+            const jid = `${cleanPhone}@s.whatsapp.net`;
 
             if (data.type === 'image') {
                 const base64Data = data.text.replace(/^data:image\/\w+;base64,/, '');
@@ -141,17 +136,16 @@ io.on('connection', (socket) => {
             } else if (data.type === 'audio') {
                 const base64Data = data.text.replace(/^data:audio\/\w+;base64,/, '');
                 const buffer = Buffer.from(base64Data, 'base64');
-                
-                // Отправляем как MP3 аудиофайл без ptt:true, чтобы официальный WhatsApp его гарантированно принял!
                 await sock.sendMessage(jid, {
                     audio: buffer,
-                    mimetype: 'audio/mpeg',
-                    fileName: `voice_${Date.now()}.mp3`
+                    mimetype: 'audio/mp3',
+                    ptt: false
                 });
             } else {
                 await sock.sendMessage(jid, { text: data.text });
             }
-            console.log(`[ОТПРАВЛЕНО] Сообщение типа ${data.type} отправлено на ${jid}`);
+
+            console.log(`[УСПЕХ] Сообщение типа ${data.type} доставлено на ${jid}`);
         } catch (error) {
             console.error('Ошибка отправки в WhatsApp:', error);
         }
@@ -160,6 +154,6 @@ io.on('connection', (socket) => {
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-    console.log(`Сервер запущен на порту ${PORT}`);
+    console.log(`Сервер WhatsDoggy запущен на порту ${PORT}`);
     connectToWhatsApp();
 });
