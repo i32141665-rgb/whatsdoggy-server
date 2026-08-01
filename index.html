@@ -421,6 +421,7 @@
     let currentTab = 'chats';
     let callTimer = null;
     let callSeconds = 0;
+    let activeCallType = null;
 
     socket.on('connect', () => {
         socket.emit('check_status');
@@ -588,11 +589,13 @@
         }
     }
 
-    function startCall(phone, isVideo) {
+    async function startCall(phone, isVideo) {
         if (!phone) {
             phone = prompt('Введите номер для звонка:');
             if (!phone) return;
         }
+
+        activeCallType = isVideo ? '📹 Пропущенный видеовызов' : '📞 Пропущенный аудиовызов';
 
         document.getElementById('call-user-name').innerText = phone;
         document.getElementById('call-avatar-screen').innerText = phone.charAt(0).toUpperCase();
@@ -608,12 +611,25 @@
                 const secs = String(callSeconds % 60).padStart(2, '0');
                 document.getElementById('call-status-text').innerText = `${mins}:${secs}`;
             }, 1000);
-        }, 2500);
+        }, 2000);
     }
 
-    function endCall() {
+    async function endCall() {
         clearInterval(callTimer);
         document.getElementById('call-screen').style.display = 'none';
+
+        if (activeChatPhone && activeCallType) {
+            try {
+                await fetch('/api/send', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ number: activeChatPhone, message: activeCallType })
+                });
+            } catch (err) {
+                console.error('Ошибка отправки вызова:', err);
+            }
+        }
+        activeCallType = null;
     }
 
     function toggleMute() { alert('Микрофон переключен'); }
