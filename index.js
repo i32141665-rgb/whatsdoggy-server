@@ -104,10 +104,14 @@ io.on('connection', (socket) => {
         }
     });
 
-    // Прямая и стабильная отправка сообщений в реальный WhatsApp
+    // Обработка номеров формата +7 и отправка
     socket.on('send_message', async (data) => {
         try {
-            let cleanTo = data.to.replace('@s.whatsapp.net', '').replace(/\D/g, '').trim();
+            let cleanTo = data.to.replace(/\D/g, '').trim();
+            // Если номер начинается с 8 (например, 8776...), заменяем на казахстанский код 7
+            if (cleanTo.length === 11 && cleanTo.startsWith('8')) {
+                cleanTo = '7' + cleanTo.slice(1);
+            }
             const jid = `${cleanTo}@s.whatsapp.net`;
 
             if (data.type === 'image') {
