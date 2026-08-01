@@ -60,8 +60,6 @@ async function connectToWhatsApp() {
         const msg = m.messages[0];
         if (!msg.key.fromMe && m.type === 'notify') {
             const remoteJid = msg.key.remoteJid;
-            
-            // Игнорируем @lid системные чаты
             if (remoteJid.includes('@lid')) return;
 
             const senderPhone = remoteJid.replace('@s.whatsapp.net', '');
@@ -90,16 +88,36 @@ io.on('connection', (socket) => {
         socket.emit('ready');
     }
 
-    // Возвращаем пустой список контактов без тестовых друзей
     socket.on('get_contacts', async () => {
-        socket.emit('contacts', []);
+        try {
+            // Получаем реальные контакты из WhatsApp аккаунта
+            if (sock && sock.store && sock.store.contacts) {
+                const contactsArr = Object.values(sock.store.contacts).map(c => ({
+                    name: c.name || c.notify || c.id.replace('@s.whatsapp.net', ''),
+                    phone: c.id.replace('@s.whatsapp.net', '')
+                }));
+                socket.emit('contacts', contactsArr);
+            } else {
+                socket.emit('contacts', []);
+            }
+        } catch (e) {
+            socket.emit('contacts', []);
+        }
     });
 
+    // Исправленная отправка сообщений с проверкой номера через Baileys
     socket.on('send_message', async (data) => {
         try {
-            // Формируем правильный JID с суффиксом, чтобы сообщение точно доходило
-            let cleanTo = data.to.replace('@s.whatsapp.net', '').trim();
-            const jid = `${cleanTo}@s.whatsapp.net`;
+            let cleanTo = data.to.replace('@s.whatsapp.net', '').replace(/\D/g, '').trim();
+            
+            // Проверяем существование номера в WhatsApp перед отправкой
+            const [result] = await sock.onWhatsApp(cleanTo);
+            if (!result || !result.exists) {
+                console.error('Номер не зарегистрирован в WhatsApp:', cleanTo);
+                return;
+            }
+            
+            const jid = result.jid; // Точный системный JID абонента
 
             if (data.type === 'image') {
                 const buffer = Buffer.from(data.text.split(',')[1], 'base64');
@@ -110,6 +128,7 @@ io.on('connection', (socket) => {
             } else {
                 await sock.sendMessage(jid, { text: data.text });
             }
+            console.log('Сообщение успешно отправлено на:', jid);
         } catch (error) {
             console.error('Ошибка отправки сообщения:', error);
         }
