@@ -163,6 +163,7 @@
             display: flex;
             justify-content: space-around;
             align-items: center;
+            flex-shrink: 0;
         }
         .nav-item { display: flex; flex-direction: column; align-items: center; gap: 4px; color: #8696a0; font-size: 11px; cursor: pointer; }
         .nav-item.active { color: #e9edef; }
@@ -303,8 +304,7 @@
             flex-shrink: 0;
         }
         .recording-indicator {
-            color: #ea0038;
-            font-weight: bold;
+            color: #ea0038 !important;
             animation: pulse 1s infinite;
         }
         @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
@@ -473,11 +473,10 @@
                 <span class="action-icon" title="Прикрепить фото из галереи" onclick="document.getElementById('image-input').click()">📁</span>
                 <span class="action-icon" title="Сделать фото с камеры" onclick="document.getElementById('camera-input').click()">📷</span>
             </div>
-            <!-- Скрытые инпуты для выбора файлов и камеры -->
             <input type="file" id="image-input" accept="image/*" style="display: none;" onchange="handleImageUpload(event)">
             <input type="file" id="camera-input" accept="image/*" capture="environment" style="display: none;" onchange="handleImageUpload(event)">
 
-            <button class="send-btn-circle" id="mic-send-btn" onclick="handleMicClick()" title="Записать голосовое / Отправить текст">🎤</button>
+            <button class="send-btn-circle" id="mic-send-btn" onclick="handleMicClick()" title="Записать голосовое сообщение">🎤</button>
         </div>
     </div>
 
@@ -507,7 +506,7 @@
     let currentTab = 'chats';
     let currentFilter = 'all';
 
-    // Переменные для записи голосовых
+    // Переменные для работы голосовых сообщений
     let mediaRecorder = null;
     let audioChunks = [];
     let isRecording = false;
@@ -826,7 +825,7 @@
                 body: JSON.stringify({ number: activeChatPhone, message: text })
             });
         } catch (err) {
-            console.error('Ошибка:', err);
+            console.error('Ошибка отправки:', err);
         }
     }
 
@@ -859,7 +858,7 @@
         reader.readAsDataURL(file);
     }
 
-    // Рабочая функция записи и отправки голосовых сообщений
+    // Рабочая функция записи голосовых сообщений (MediaRecorder)
     async function handleMicClick() {
         const micBtn = document.getElementById('mic-send-btn');
         if (!activeChatPhone) return;
@@ -904,7 +903,7 @@
 
                 mediaRecorder.start();
                 isRecording = true;
-                micBtn.style.backgroundColor = '#ea0038';
+                micBtn.style.backgroundColor = '#0b141a';
                 micBtn.classList.add('recording-indicator');
             } catch (err) {
                 alert('Нет доступа к микрофону!');
@@ -919,7 +918,6 @@
 
     function startCall(phone, isVideo) {
         if (!phone) return;
-        activeCallType = isVideo ? 'Видеовызов' : 'Звонок';
         document.getElementById('call-user-name').innerText = phone;
         document.getElementById('call-status-text').innerText = 'Вызов...';
         document.getElementById('call-avatar-screen').innerText = phone.charAt(0).toUpperCase();
