@@ -43,7 +43,7 @@ async function connectToWhatsApp() {
         }
 
         if (connection === 'open') {
-            console.log('WhatsDoggy успешно подключен к WhatsApp!');
+            console.log('WhatsDoggy подключен к официальной сети WhatsApp!');
             currentQr = null;
             io.emit('ready');
         }
@@ -74,9 +74,9 @@ async function connectToWhatsApp() {
                 messageType = 'audio';
                 try {
                     const buffer = await downloadMediaMessage(msg, 'buffer', {}, { logger: pino({ level: 'silent' }) });
-                    messageText = `data:audio/mp4;base64,${buffer.toString('base64')}`;
+                    messageText = `data:audio/mp3;base64,${buffer.toString('base64')}`;
                 } catch (e) {
-                    console.error('Ошибка загрузки аудио:', e);
+                    console.error('Ошибка приеме аудио:', e);
                 }
             } else if (msg.message?.imageMessage) {
                 messageType = 'image';
@@ -84,7 +84,7 @@ async function connectToWhatsApp() {
                     const buffer = await downloadMediaMessage(msg, 'buffer', {}, { logger: pino({ level: 'silent' }) });
                     messageText = `data:image/jpeg;base64,${buffer.toString('base64')}`;
                 } catch (e) {
-                    console.error('Ошибка загрузки фото:', e);
+                    console.error('Ошибка приема фото:', e);
                 }
             }
 
@@ -120,7 +120,7 @@ io.on('connection', (socket) => {
         }
     });
 
-    // Отправка сообщений на реальный официальный WhatsApp
+    // ОПРЕДЕЛЕНИЕ JID И ОТПРАВКА НА ОФИЦИАЛЬНЫЙ WHATSAPP
     socket.on('send_message', async (data) => {
         try {
             let cleanTo = data.to.replace(/\D/g, '').trim();
@@ -130,26 +130,30 @@ io.on('connection', (socket) => {
                 cleanTo = '7' + cleanTo;
             }
 
-            // Строго проверяем существование номера в официальной сети WhatsApp
+            // Находим точный JID получателя
             const [result] = await sock.onWhatsApp(cleanTo);
-            if (!result || !result.exists) {
-                console.error('Номер не зарегистрирован в WhatsApp:', cleanTo);
-                return;
-            }
-            const jid = result.jid;
+            const jid = result && result.exists ? result.jid : `${cleanTo}@s.whatsapp.net`;
 
             if (data.type === 'image') {
-                const buffer = Buffer.from(data.text.split(',')[1], 'base64');
-                await sock.sendMessage(jid, { image: buffer });
+                const base64Data = data.text.replace(/^data:image\/\w+;base64,/, '');
+                const buffer = Buffer.from(base64Data, 'base64');
+                await sock.sendMessage(jid, { image: buffer, caption: '' });
             } else if (data.type === 'audio') {
-                const buffer = Buffer.from(data.text.split(',')[1], 'base64');
-                await sock.sendMessage(jid, { audio: buffer, mimetype: 'audio/mp4', ptt: true });
+                const base64Data = data.text.replace(/^data:audio\/\w+;base64,/, '');
+                const buffer = Buffer.from(base64Data, 'base64');
+                
+                // Отправляем как MP3 аудиофайл без ptt:true, чтобы официальный WhatsApp его гарантированно принял!
+                await sock.sendMessage(jid, {
+                    audio: buffer,
+                    mimetype: 'audio/mpeg',
+                    fileName: `voice_${Date.now()}.mp3`
+                });
             } else {
                 await sock.sendMessage(jid, { text: data.text });
             }
-            console.log('Успешно отправлено на официальный WhatsApp JID:', jid);
+            console.log(`[ОТПРАВЛЕНО] Сообщение типа ${data.type} отправлено на ${jid}`);
         } catch (error) {
-            console.error('Ошибка отправки сообщения:', error);
+            console.error('Ошибка отправки в WhatsApp:', error);
         }
     });
 });
