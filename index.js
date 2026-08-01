@@ -1,21 +1,29 @@
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } = require('@whiskeysockets/baileys');
-const express = require('express');
-const http = require('http');
-const { Server } = require('socket.io');
-const pino = require('pino');
-const qrcode = require('qrcode');
+import makeWASocket, { useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion } from '@whiskeysockets/baileys';
+import express from 'express';
+import http from 'http';
+import { Server } from 'socket.io';
+import cors from 'cors';
+import fs from 'fs';
+import path from 'path';
 
 const app = express();
-const server = http.createServer(app);
-const io = new Server(server);
+app.use(cors());
+app.use(express.json());
 
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ limit: '50mb', extended: true }));
-app.use(express.static('public')); // Убедись, что index.html лежит в папке public или рядом со скриптом
+const server = http.createServer(app);
+const io = new Server(server, {
+    cors: { origin: "*" }
+});
+
+const PORT = process.env.PORT || 3000;
+
+// Обслуживаем статику (твой index.html)
+const __dirname = path.resolve();
+app.use(express.static(path.join(__dirname)));
 
 let sock = null;
 let qrCodeData = null;
-let isConnected = false;
+let connectionStatus = 'disconnected';
 
 async function startWhatsApp() {
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
@@ -24,137 +32,86 @@ async function startWhatsApp() {
     sock = makeWASocket({
         version,
         auth: state,
-        logger: pino({ level: 'silent' }),
         printQRInTerminal: true
     });
 
     sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect, qr } = update;
-
+        
         if (qr) {
-            qrCodeData = await qrcode.toDataURL(qr);
-            isConnected = false;
-            io.emit('qr_code', qrCodeData);
+            qrCodeData = qr;
+            connectionStatus = 'qr';
+            io.emit('qr', qr);
         }
 
-        if (connection === 'open') {
-            isConnected = true;
-            qrCodeData = null;
-            console.log('WhatsApp успешно подключен!');
-            io.emit('connection_status', { connected: true });
-        } else if (connection === 'close') {
-            isConnected = false;
+        if (connection === 'close') {
             const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
-            console.log('Соединение закрыто. Переподключение:', shouldReconnect);
-            io.emit('connection_status', { connected: false });
+            connectionStatus = 'disconnected';
+            qrCodeData = null;
+            io.emit('status', 'disconnected');
             if (shouldReconnect) {
                 startWhatsApp();
             }
+        } else if (connection === 'open') {
+            connectionStatus = 'connected';
+            qrCodeData = null;
+            io.emit('status', 'connected');
+            console.log('WhatsApp успешно подключен!');
         }
     });
 
     sock.ev.on('creds.update', saveCreds);
 
-    // Обработка входящих сообщений
+    // Получение входящих сообщений
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
         if (type !== 'notify') return;
-
         for (const msg of messages) {
             if (!msg.message) continue;
-
-            const remoteJid = msg.key.remoteJid;
-            const fromMe = msg.key.fromMe;
-            
-            let messageText = '';
-            let msgType = 'text';
-
-            if (msg.message.conversation) {
-                messageText = msg.message.conversation;
-            } else if (msg.message.extendedTextMessage) {
-                messageText = msg.message.extendedTextMessage.text;
-            } else if (msg.message.imageMessage) {
-                messageText = msg.message.imageMessage.caption || 'Фото';
-                msgType = 'image';
-            } else if (msg.message.audioMessage) {
-                messageText = 'Голосовое сообщение';
-                msgType = 'audio';
-            }
-
-            io.emit('new_message', {
-                from: remoteJid,
-                text: messageText,
-                fromMe: fromMe,
-                type: msgType
-            });
+            io.emit('message', msg);
         }
     });
 }
 
-// API для отправки сообщений, картинок и голосовых
-app.post('/api/send', async (req, res) => {
-    try {
-        if (!isConnected || !sock) {
-            return res.status(400).json({ error: 'WhatsApp не подключен' });
+// Связь с клиентской частью через Socket.IO
+io.on('connection', (socket) => {
+    socket.emit('status', connectionStatus);
+    if (qrCodeData) {
+        socket.emit('qr', qrCodeData);
+    }
+
+    // Отправка текстовых сообщений
+    socket.on('send-message', async (data) => {
+        try {
+            if (!sock) return;
+            const jid = data.number.includes('@s.whatsapp.net') ? data.number : data.number + '@s.whatsapp.net';
+            await sock.sendMessage(jid, { text: data.text });
+        } catch (e) {
+            console.error('Ошибка отправки сообщения:', e);
         }
+    });
 
-        const { number, message, media, type } = req.body;
-        const jid = number.includes('@') ? number : `${number}@s.whatsapp.net`;
-
-        if (type === 'image' && media) {
-            const buffer = Buffer.from(media.split(',')[1], 'base64');
-            await sock.sendMessage(jid, { image: buffer, caption: message || '' });
-        } else if (type === 'audio' && media) {
-            const buffer = Buffer.from(media.split(',')[1], 'base64');
+    // Отправка голосовых (важно: ptt: true и mimetype для нормального отображения в WhatsApp)
+    socket.on('send-voice', async (data) => {
+        try {
+            if (!sock) return;
+            const jid = data.number.includes('@s.whatsapp.net') ? data.number : data.number + '@s.whatsapp.net';
             
-            // ПРЕВРАЩАЕМ В ПОЛНОЦЕННОЕ ГОЛОСОВОЕ СООБЩЕНИЕ С КНОПКОЙ PLAY И ВОЛНОЙ
+            // Получаем аудио из Base64, которое прислал клиент
+            const base64Data = data.audio.replace(/^data:.*;base64,/, "");
+            const buffer = Buffer.from(base64Data, 'base64');
+
             await sock.sendMessage(jid, {
                 audio: buffer,
                 mimetype: 'audio/ogg; codecs=opus',
-                ptt: true 
+                ptt: true // Превращает аудио в полноценное голосовое сообщение с волной
             });
-        } else if (message) {
-            await sock.sendMessage(jid, { text: message });
-        }
-
-        res.json({ success: true });
-    } catch (error) {
-        console.error('Ошибка отправки:', error);
-        res.status(500).json({ error: error.message });
-    }
-});
-
-// API для проверки статуса подключения
-app.get('/api/status', (req, res) => {
-    res.json({ connected: isConnected, qr: qrCodeData });
-});
-
-// API для выхода из сессии
-app.post('/api/logout', async (req, res) => {
-    try {
-        if (sock) {
-            await sock.logout();
-        }
-        isConnected = false;
-        res.json({ success: true });
-        setTimeout(() => startWhatsApp(), 1000);
-    } catch (e) {
-        res.status(500).json({ error: e.message });
-    }
-});
-
-io.on('connection', (socket) => {
-    socket.on('check_status', () => {
-        if (isConnected) {
-            socket.emit('connection_status', { connected: true });
-        } else if (qrCodeData) {
-            socket.emit('qr_code', qrCodeData);
-        } else {
-            socket.emit('connection_status', { connected: false });
+        } catch (e) {
+            console.error('Ошибка отправки голосового:', e);
         }
     });
 });
 
-server.listen(3000, () => {
-    console.log('Сервер запущен на http://localhost:3000');
+server.listen(PORT, () => {
+    console.log(`Сервер запущен на порту ${PORT}`);
     startWhatsApp();
 });
