@@ -121,7 +121,7 @@ app.post('/api/send', async (req, res) => {
             } else if (type === 'audio') {
                 await sock.sendMessage(jid, { 
                     audio: buffer, 
-                    mimetype: 'audio/mp4', 
+                    mimetype: 'audio/ogg; codecs=opus', 
                     ptt: true 
                 });
             }
