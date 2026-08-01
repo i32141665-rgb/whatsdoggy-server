@@ -193,7 +193,7 @@
                 <div class="chat-input-container">
                     <input type="text" id="chat-input" placeholder="Введите сообщение..." onkeydown="if(event.key==='Enter') sendMessage()">
                 </div>
-                <span class="action-icon" id="mic-send-btn" onclick="handleMicClick()" title="Записать MP3 аудио">🎤</span>
+                <span class="action-icon" id="mic-send-btn" onclick="handleMicClick()" title="Записать аудио">🎤</span>
                 <div class="send-btn-circle" onclick="sendMessage()">➤</div>
             </div>
         </div>
@@ -209,7 +209,7 @@
         let audioChunks = [];
         let isRecording = false;
 
-        // Вспомогательная функция для чистки номеров от ЛЮБЫХ лишних символов/букв
+        // Вспомогательная функция для чистки номеров
         function cleanPhoneNumber(rawPhone) {
             if (!rawPhone) return '';
             let cleaned = rawPhone.split('@')[0].replace(/\D/g, '');
@@ -310,7 +310,7 @@
             container.innerHTML = '';
             chatsMap.forEach((chat, phone) => {
                 let lastMsg = chat.messages[chat.messages.length - 1];
-                let lastText = lastMsg ? (lastMsg.type === 'image' ? '📷 Изображение' : lastMsg.type === 'audio' ? '🎵 MP3 Аудио' : lastMsg.text) : 'Нет сообщений';
+                let lastText = lastMsg ? (lastMsg.type === 'image' ? '📷 Изображение' : lastMsg.type === 'audio' ? '🎵 Голосовое сообщение' : lastMsg.text) : 'Нет сообщений';
                 
                 let div = document.createElement('div');
                 div.className = 'chat-item';
@@ -428,10 +428,17 @@
             renderChats();
         }
 
-        // ОТПРАВКА ИЗОБРАЖЕНИЯ
+        // ОТПРАВКА ИЗОБРАЖЕНИЯ (С проверкой активного чата и очисткой input)
         function handleImageUpload(event) {
+            if (!activeChatPhone) {
+                alert('Сначала выберите чат!');
+                event.target.value = '';
+                return;
+            }
+
             const file = event.target.files[0];
-            if (!file || !activeChatPhone) return;
+            if (!file) return;
+
             const reader = new FileReader();
             reader.onload = function(e) {
                 const base64Image = e.target.result;
@@ -443,12 +450,18 @@
                 }
                 renderMessages(activeChatPhone);
                 renderChats();
+                event.target.value = ''; // Очистка значения для сброса инпута
             };
             reader.readAsDataURL(file);
         }
 
-        // ЗАПИСЬ И ОТПРАВКА ГОЛОСОВОГО В MP3
+        // ЗАПИСЬ И ОТПРАВКА ГОЛОСОВОГО (С универсальной поддержкой кодеков браузера)
         async function handleMicClick() {
+            if (!activeChatPhone) {
+                alert('Сначала выберите чат!');
+                return;
+            }
+
             const micBtn = document.getElementById('mic-send-btn');
             if (!isRecording) {
                 try {
@@ -459,7 +472,11 @@
                     mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
                     
                     mediaRecorder.onstop = () => {
-                        const blob = new Blob(audioChunks, { type: 'audio/mp3' });
+                        // Определение поддерживаемого браузером типа
+                        const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 
+                                         (MediaRecorder.isTypeSupported('audio/mp3') ? 'audio/mp3' : 'audio/ogg');
+                        
+                        const blob = new Blob(audioChunks, { type: mimeType });
                         const reader = new FileReader();
                         reader.onload = function(e) {
                             const base64Audio = e.target.result;
