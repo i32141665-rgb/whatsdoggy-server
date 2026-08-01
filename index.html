@@ -170,7 +170,6 @@
         .nav-icon-wrapper { padding: 4px 14px; border-radius: 16px; font-size: 18px; }
         .nav-item.active .nav-icon-wrapper { background-color: #103629; color: #25d366; }
 
-        /* Экран профиля */
         #profile-screen {
             display: none;
             position: absolute;
@@ -261,8 +260,45 @@
         }
         .msg-incoming { background-color: #202c33; align-self: flex-start; border-top-left-radius: 0; }
         .msg-outgoing { background-color: #005c4b; align-self: flex-end; border-top-right-radius: 0; }
-        .msg-time { font-size: 11px; color: #8696a0; float: right; margin-left: 10px; margin-top: 4px; }
+        .msg-time { font-size: 11px; color: #8696a0; float: right; margin-left: 10px; margin-top: 4px; display: inline-block; }
         .msg-bubble img { max-width: 100%; border-radius: 8px; margin-bottom: 4px; display: block; }
+
+        /* Стильный аудиоплеер без лишних полос */
+        .voice-player {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            min-width: 200px;
+            padding: 4px 0;
+        }
+        .voice-play-btn {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            background: #00a884;
+            border: none;
+            color: #fff;
+            font-size: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            flex-shrink: 0;
+        }
+        .voice-wave {
+            flex: 1;
+            height: 24px;
+            display: flex;
+            align-items: center;
+            gap: 2px;
+        }
+        .voice-bar {
+            flex: 1;
+            background: rgba(255,255,255,0.3);
+            height: 12px;
+            border-radius: 2px;
+        }
+        .voice-bar.active { background: #53bdeb; }
 
         .chat-input-bar {
             padding: 8px 12px;
@@ -506,7 +542,6 @@
     let currentTab = 'chats';
     let currentFilter = 'all';
 
-    // Переменные для работы голосовых сообщений
     let mediaRecorder = null;
     let audioChunks = [];
     let isRecording = false;
@@ -545,7 +580,7 @@
     }
 
     function openNewContactPrompt() {
-        const phone = prompt('Введите номер телефона (например, 77055553333):');
+        const phone = prompt('Введите номер телефона (например, 77767737216):');
         if (!phone) return;
         const name = prompt('Введите имя контакта:') || phone;
         addContact(phone, name);
@@ -596,43 +631,58 @@
         }
     });
 
+    // Улучшенная функция фильтрации ID: если контакт уже сохранен по номеру, сопоставляем по нему, исключая технические мусорные ID
     function cleanId(rawId) {
         if (!rawId) return '';
-        return rawId.replace('@s.whatsapp.net', '').replace('@lid', '').replace('@g.us', '');
+        let clean = rawId.replace('@s.whatsapp.net', '').replace('@lid', '').replace('@g.us', '').replace(/:.*/, '');
+        
+        // Если это длинный технический ID, но у нас в сохраненных есть контакт с таким же окончанием или под этот номер, пытаемся найти совпадение
+        let found = savedContacts.find(c => c.phone === clean || clean.endsWith(c.phone) || c.phone.endsWith(clean));
+        if (found) {
+            return found.phone;
+        }
+        
+        // Если это длинный бессмысленный технический ID из цифр больше 12 символов без плюсов и похожий на LID, попробуем не создавать для него отдельный мусорный чат, если есть основной контакт, либо оставляем как есть, но лучше привязывать
+        return clean;
     }
 
     function addContact(phone, name = '') {
-        let clean = cleanId(phone);
+        let clean = phone.replace(/[^0-9]/g, '');
         if (!clean) return;
         let displayName = name ? name : clean;
         
-        if (!savedContacts.some(c => c.phone === clean)) {
-            savedContacts.push({ phone: clean, name: displayName });
-            localStorage.setItem('doggy_contacts', JSON.stringify(savedContacts));
-            renderContacts();
-        }
+        // Удаляем старую запись если была
+        savedContacts = savedContacts.filter(c => c.phone !== clean);
+        savedContacts.push({ phone: clean, name: displayName });
+        localStorage.setItem('doggy_contacts', JSON.stringify(savedContacts));
+        renderContacts();
     }
 
     socket.on('new_message', (data) => {
         let rawSender = cleanId(data.from);
-        let targetKey = rawSender || '77055553333';
+        if (!rawSender) return;
 
-        addContact(targetKey);
-        const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        
-        if (!chatsMap.has(targetKey)) {
-            let contact = savedContacts.find(c => c.phone === targetKey);
-            let chatName = contact ? contact.name : targetKey;
-            chatsMap.set(targetKey, { name: chatName, messages: [], unread: !data.fromMe, isGroup: targetKey.includes('-') });
+        // Автоматически добавляем контакт, если его еще нет
+        if (!savedContacts.some(c => c.phone === rawSender)) {
+            savedContacts.push({ phone: rawSender, name: rawSender });
+            localStorage.setItem('doggy_contacts', JSON.stringify(savedContacts));
         }
 
-        const chat = chatsMap.get(targetKey);
+        const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        
+        if (!chatsMap.has(rawSender)) {
+            let contact = savedContacts.find(c => c.phone === rawSender);
+            let chatName = contact ? contact.name : rawSender;
+            chatsMap.set(rawSender, { name: chatName, messages: [], unread: !data.fromMe, isGroup: rawSender.includes('-') });
+        }
+
+        const chat = chatsMap.get(rawSender);
         chat.messages.push({ text: data.text, time: timeStr, fromMe: data.fromMe, type: data.type || 'text' });
         if (!data.fromMe) chat.unread = true;
 
         renderChats();
-        if (activeChatPhone === targetKey) {
-            renderMessages(targetKey);
+        if (activeChatPhone === rawSender) {
+            renderMessages(rawSender);
         }
     });
 
@@ -774,6 +824,7 @@
         renderChats();
     }
 
+    // Кастомный рендер сообщений с красивым плеером без полос
     function renderMessages(phone) {
         const container = document.getElementById('chat-messages');
         container.innerHTML = '';
@@ -789,7 +840,18 @@
             if (msg.type === 'image') {
                 contentHtml = `<img src="${msg.text}" alt="Фото">`;
             } else if (msg.type === 'audio') {
-                contentHtml = `<audio controls src="${msg.text}" style="max-width: 200px; height: 35px;"></audio>`;
+                contentHtml = `
+                    <div class="voice-player">
+                        <button class="voice-play-btn" onclick="playVoice(this, '${msg.text}')">▶</button>
+                        <div class="voice-wave">
+                            <div class="voice-bar"></div>
+                            <div class="voice-bar active"></div>
+                            <div class="voice-bar"></div>
+                            <div class="voice-bar"></div>
+                            <div class="voice-bar"></div>
+                        </div>
+                    </div>
+                `;
             } else {
                 contentHtml = msg.text;
             }
@@ -801,6 +863,19 @@
             container.appendChild(bubble);
         });
         container.scrollTop = container.scrollHeight;
+    }
+
+    // Функция воспроизведения голосового без стандартного кривого плеера
+    function playVoice(btn, audioSrc) {
+        let audio = new Audio(audioSrc);
+        if (btn.innerText === '▶') {
+            btn.innerText = '⏸';
+            audio.play();
+            audio.onended = () => { btn.innerText = '▶'; };
+        } else {
+            btn.innerText = '▶';
+            audio.pause();
+        }
     }
 
     async function sendMessage() {
@@ -858,7 +933,6 @@
         reader.readAsDataURL(file);
     }
 
-    // Рабочая функция записи голосовых сообщений (MediaRecorder)
     async function handleMicClick() {
         const micBtn = document.getElementById('mic-send-btn');
         if (!activeChatPhone) return;
