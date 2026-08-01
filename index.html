@@ -632,7 +632,6 @@
         }
     });
 
-    // Строгий фильтр: отсекает любые длинные системные ID
     function resolveSender(rawId) {
         if (!rawId) return null;
         let clean = rawId.replace('@s.whatsapp.net', '').replace('@lid', '').replace('@g.us', '').replace(/:.*/, '');
@@ -731,7 +730,6 @@
         }
     }
 
-    // ИСПРАВЛЕНО: отображает только реально сохраненные тобой контакты, исключая любой мусор
     function renderContacts() {
         const container = document.getElementById('contacts-list');
         container.innerHTML = '';
@@ -936,7 +934,14 @@
         if (!isRecording) {
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                mediaRecorder = new MediaRecorder(stream);
+                
+                // Настройка корректного аудиоконтейнера opus/ogg под WhatsApp без конвертеров
+                const options = { mimeType: 'audio/webm; codecs=opus' };
+                if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+                    options.mimeType = 'audio/ogg; codecs=opus';
+                }
+
+                mediaRecorder = new MediaRecorder(stream, options);
                 audioChunks = [];
 
                 mediaRecorder.ondataavailable = event => {
@@ -944,7 +949,7 @@
                 };
 
                 mediaRecorder.onstop = async () => {
-                    const audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+                    const audioBlob = new Blob(audioChunks, { type: options.mimeType });
                     const reader = new FileReader();
                     
                     reader.onload = async function(event) {
