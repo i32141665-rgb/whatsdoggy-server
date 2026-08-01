@@ -1,27 +1,31 @@
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
-const express = require('express');
-const http = require('http');
-const { Server } = require('socket.io');
-const qrcode = require('qrcode');
-const pino = require('pino');
+import makeWASocket, { useMultiFileAuthState, DisconnectReason } from '@whiskeysockets/baileys';
+import express from 'express';
+import http from 'http';
+import { Server } from 'socket.io';
+import qrcode from 'qrcode';
+import pino from 'pino';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
-// Раздаем статические файлы (если ваш HTML лежит в той же папке)
+// Раздаем статические файлы
 app.use(express.static(__dirname));
 
 let sock;
 let currentQr = null;
 
 async function connectToWhatsApp() {
-    // Сохранение сессии в папке auth_info
     const { state, saveCreds } = await useMultiFileAuthState('auth_info');
 
     sock = makeWASocket({
         auth: state,
-        logger: pino({ level: 'silent' }), // Отключаем лишний шум в логах
+        logger: pino({ level: 'silent' }),
         printQRInTerminal: false
     });
 
@@ -30,7 +34,6 @@ async function connectToWhatsApp() {
     sock.ev.on('connection.update', async (update) => {
         const { connection, lastDisconnect, qr } = update;
 
-        // Если пришел текстовый QR-код, конвертируем его в картинку Data URL
         if (qr) {
             try {
                 currentQr = await qrcode.toDataURL(qr);
@@ -47,7 +50,7 @@ async function connectToWhatsApp() {
         }
 
         if (connection === 'close') {
-            const shouldReconnect = (lastDisconnect?.error)?.output?.statusCode !== DisconnectReason.loggedOut;
+            const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
             console.log('Соединение закрыто. Переподключение:', shouldReconnect);
             if (shouldReconnect) {
                 connectToWhatsApp();
@@ -57,7 +60,6 @@ async function connectToWhatsApp() {
         }
     });
 
-    // Обработка входящих сообщений
     sock.ev.on('messages.upsert', async (m) => {
         const msg = m.messages[0];
         if (!msg.key.fromMe && m.type === 'notify') {
@@ -71,7 +73,6 @@ async function connectToWhatsApp() {
                 messageText = msg.message.extendedTextMessage.text;
             }
 
-            // Отправляем сообщение на клиент через Socket.io
             io.emit('message', {
                 from: senderPhone,
                 text: messageText,
@@ -81,21 +82,17 @@ async function connectToWhatsApp() {
     });
 }
 
-// WebSocket соединения с фронтендом
 io.on('connection', (socket) => {
     console.log('Клиент подключился по WebSocket');
 
-    // Если QR уже был сгенерирован ранее, сразу отправляем его новому клиенту
     if (currentQr) {
         socket.emit('qr', { qr: currentQr });
     } else if (sock && sock.user) {
         socket.emit('ready');
     }
 
-    // Запрос контактов
     socket.on('get_contacts', async () => {
         try {
-            // Пример отправки заглушки контактов или реальных чатов Baileys
             const contactsList = [
                 { name: 'Тестовый друг', phone: '12345' }
             ];
@@ -105,12 +102,10 @@ io.on('connection', (socket) => {
         }
     });
 
-    // Отправка сообщения пользователю
     socket.on('send_message', async (data) => {
         try {
             const jid = data.to.includes('@') ? data.to : `${data.to}@s.whatsapp.net`;
             if (data.type === 'image') {
-                // Отправка картинки по Base64
                 const buffer = Buffer.from(data.text.split(',')[1], 'base64');
                 await sock.sendMessage(jid, { image: buffer });
             } else if (data.type === 'audio') {
@@ -125,7 +120,6 @@ io.on('connection', (socket) => {
     });
 });
 
-// Запуск сервера
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
     console.log(`Сервер запущен на порту ${PORT}`);
