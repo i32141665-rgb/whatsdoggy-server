@@ -15,7 +15,6 @@
         #qr-image { width: 200px; height: 200px; display: none; border-radius: 4px; }
         #qr-loader { color: #111b21; font-size: 14px; font-weight: 500; }
 
-        /* Адаптивный главный экран под мобильные и ПК */
         #app-screen { width: 100vw; height: 100vh; max-width: 600px; background-color: #0b141a; display: none; flex-direction: column; position: relative; overflow: hidden; box-shadow: 0 0 20px rgba(0,0,0,0.5); }
         @media (min-width: 601px) {
             #app-screen { height: 92vh; border-radius: 12px; border: 1px solid #222d34; }
@@ -73,6 +72,7 @@
         .msg-outgoing { background-color: #005c4b; align-self: flex-end; border-top-right-radius: 0; }
         .msg-time { font-size: 11px; color: #8696a0; float: right; margin-left: 10px; margin-top: 4px; display: inline-block; }
         .msg-bubble img { max-width: 100%; border-radius: 8px; margin-bottom: 4px; display: block; }
+        .msg-bubble audio { max-width: 220px; height: 35px; display: block; margin-bottom: 4px; }
 
         .chat-input-bar { padding: 10px 16px; background-color: #111b21; display: flex; align-items: center; gap: 12px; border-top: 1px solid #1f2c34; }
         .chat-input-container { flex: 1; background-color: #2a3942; border-radius: 22px; display: flex; align-items: center; padding: 8px 16px; gap: 10px; }
@@ -361,7 +361,7 @@
                 if (msg.type === 'image') {
                     contentHtml = `<img src="${msg.text}" alt="image">`;
                 } else if (msg.type === 'audio') {
-                    contentHtml = `<span>🎤 Голосовое сообщение</span>`;
+                    contentHtml = `<audio controls src="${msg.text}"></audio>`;
                 } else {
                     contentHtml = `<span>${msg.text}</span>`;
                 }
@@ -425,11 +425,12 @@
                         const blob = new Blob(audioChunks, { type: 'audio/webm' });
                         const reader = new FileReader();
                         reader.onload = function(e) {
-                            socket.emit('send_message', { to: activeChatPhone, text: e.target.result, type: 'audio' });
+                            const base64Audio = e.target.result;
+                            socket.emit('send_message', { to: activeChatPhone, text: base64Audio, type: 'audio' });
                             const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
                             let chat = chatsMap.get(activeChatPhone);
                             if (chat) {
-                                chat.messages.push({ text: '🎤 Голосовое сообщение', time: timeStr, fromMe: true, type: 'audio' });
+                                chat.messages.push({ text: base64Audio, time: timeStr, fromMe: true, type: 'audio' });
                             }
                             renderMessages(activeChatPhone);
                             renderChats();
