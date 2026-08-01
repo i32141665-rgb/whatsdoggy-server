@@ -263,7 +263,6 @@
         .msg-time { font-size: 11px; color: #8696a0; float: right; margin-left: 10px; margin-top: 4px; display: inline-block; }
         .msg-bubble img { max-width: 100%; border-radius: 8px; margin-bottom: 4px; display: block; }
 
-        /* Полностью чистый аудио-плеер без лишних полос и рамок */
         .voice-player {
             display: flex;
             align-items: center;
@@ -633,20 +632,18 @@
         }
     });
 
-    // ЖЕСТКИЙ ФИЛЬТР: Полностью блокируем любые ID. Ищем только среди сохраненных тобой контактов.
+    // ПОЛНЫЙ ФИЛЬТР: Жестко блокирует длинные системные ID и пропускает только чистые номера/контакты
     function resolveSender(rawId) {
         if (!rawId) return null;
         let clean = rawId.replace('@s.whatsapp.net', '').replace('@lid', '').replace('@g.us', '').replace(/:.*/, '');
         
-        // Проверяем, есть ли этот номер в добавленных тобой контактах
+        if (/^[0-9]{13,}$/.test(clean)) {
+            return null;
+        }
+        
         let found = savedContacts.find(c => c.phone === clean || clean.includes(c.phone) || c.phone.includes(clean));
         if (found) {
             return found.phone;
-        }
-        
-        // Если это длинный системный ID (например, 15+ цифр идентификатора WhatsApp без нормального префикса страны) — отбрасываем навсегда
-        if (clean.length > 12 || /^[0-9]{13,}$/.test(clean)) {
-            return null;
         }
         
         return clean;
@@ -665,7 +662,7 @@
 
     socket.on('new_message', (data) => {
         let targetKey = resolveSender(data.from);
-        if (!targetKey) return; // Если это системный ID — полностью игнорируем его
+        if (!targetKey) return;
 
         let contact = savedContacts.find(c => c.phone === targetKey);
         let chatName = contact ? contact.name : targetKey;
@@ -739,7 +736,7 @@
         container.innerHTML = '';
 
         if (savedContacts.length === 0) {
-            container.innerHTML = `<div style="padding: 20px; text-align: center; color: #8696a0;">Нет сохраненных контактов.<br>Нажмите плюсик сверху, чтобы добавить (например, Екатерину).</div>`;
+            container.innerHTML = `<div style="padding: 20px; text-align: center; color: #8696a0;">Нет сохраненных контактов.<br>Нажмите плюсик сверху, чтобы добавить.</div>`;
             return;
         }
 
