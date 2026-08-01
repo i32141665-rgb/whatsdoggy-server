@@ -57,7 +57,7 @@
             height: 100vh;
             max-height: 900px;
             background-color: #0b141a;
-            display: none; /* Скрыт по умолчанию */
+            display: none;
             flex-direction: column;
             position: relative;
             box-shadow: 0 0 20px rgba(0,0,0,0.8);
@@ -186,7 +186,7 @@
         .nav-icon-wrapper { padding: 4px 14px; border-radius: 16px; font-size: 18px; }
         .nav-item.active .nav-icon-wrapper { background-color: #103629; color: #25d366; }
 
-        /* Экран профиля (скрыт по умолчанию) */
+        /* Экран профиля */
         #profile-screen {
             display: none;
             position: absolute;
@@ -213,7 +213,7 @@
         .profile-label { font-size: 13px; color: #00a884; margin-bottom: 6px; font-weight: 500; }
         .profile-input { width: 100%; background: transparent; border: none; border-bottom: 2px solid #00a884; color: #e9edef; font-size: 16px; padding: 6px 0; outline: none; }
 
-        /* Окно чата (скрыто по умолчанию) */
+        /* Окно чата */
         #chat-window {
             display: none;
             position: absolute;
@@ -234,19 +234,17 @@
         .chat-avatar-small { width: 40px; height: 40px; border-radius: 50%; background: #00a884; display: flex; align-items: center; justify-content: center; font-weight: bold; color: #fff; }
         .chat-user-title { font-size: 16px; font-weight: 500; color: #e9edef; }
         
-        /* Область сообщений */
         .chat-messages-area {
             flex: 1;
             padding: 16px;
             overflow-y: auto;
-            background-image: url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png'); /* Фоновая текстура WhatsApp */
+            background-image: url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png');
             background-color: #081014;
             display: flex;
             flex-direction: column;
             gap: 8px;
         }
 
-        /* Пузыри сообщений */
         .msg-bubble {
             max-width: 75%;
             padding: 8px 12px;
@@ -262,14 +260,12 @@
         .msg-time { font-size: 11px; color: #8696a0; float: right; margin-left: 10px; margin-top: 4px; display: inline-block; }
         .msg-bubble img { max-width: 100%; border-radius: 8px; margin-bottom: 4px; display: block; cursor: pointer; }
         
-        /* Медиа-плееры */
         .voice-player { display: flex; align-items: center; gap: 10px; min-width: 170px; padding: 4px 0; }
         .voice-play-btn { width: 32px; height: 32px; border-radius: 50%; background: #00a884; border: none; color: #fff; font-size: 14px; display: flex; align-items: center; justify-content: center; cursor: pointer; }
         .voice-wave { flex: 1; height: 16px; display: flex; align-items: center; gap: 2px; }
         .voice-bar { flex: 1; background: rgba(255,255,255,0.3); height: 8px; border-radius: 2px; }
         .voice-bar.active { background: #53bdeb; }
 
-        /* Панель ввода в чате */
         .chat-input-bar {
             padding: 8px 12px;
             background-color: #202c33;
@@ -299,4 +295,507 @@
             width: 45px;
             height: 45px;
             background-color: #00a884;
-            border-radius: 50
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #0b141a;
+            font-size: 18px;
+            cursor: pointer;
+            flex-shrink: 0;
+        }
+
+        /* Экран звонков */
+        #call-screen {
+            display: none;
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: linear-gradient(135deg, #111b21 0%, #0b141a 100%);
+            z-index: 30;
+            flex-direction: column;
+            justify-content: space-between;
+            align-items: center;
+            padding: 40px 20px;
+            text-align: center;
+        }
+        .call-user-avatar {
+            width: 120px; height: 120px; border-radius: 50%;
+            background: #00a884; color: #fff; font-size: 48px;
+            display: flex; align-items: center; justify-content: center;
+            margin-top: 40px; box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+        .call-controls { display: flex; gap: 20px; margin-bottom: 30px; }
+        .call-btn {
+            width: 60px; height: 60px; border-radius: 50%;
+            border: none; display: flex; align-items: center; justify-content: center;
+            font-size: 20px; cursor: pointer; color: #fff;
+        }
+        .btn-mute { background-color: #202c33; }
+        .btn-end { background-color: #ea0038; }
+
+        .recording-indicator { background-color: #ea0038 !important; animation: pulse 1.5s infinite; }
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+            100% { transform: scale(1); }
+        }
+    </style>
+    <script src="/socket.io/socket.io.js"></script>
+</head>
+<body>
+
+    <!-- 1. Экран авторизации (QR-код) -->
+    <div id="qr-screen">
+        <h2>WhatsDoggy</h2>
+        <p>Используйте камеру телефона для сканирования QR-кода и входа в систему</p>
+        <div class="qr-box">
+            <div id="qr-loader">Генерация QR...</div>
+            <img id="qr-image" alt="WhatsApp QR Code">
+        </div>
+    </div>
+
+    <!-- 2. Основное приложение -->
+    <div id="app-screen">
+        <div class="top-bar">
+            <h1>WhatsDoggy</h1>
+            <div class="top-icons">
+                <span title="Профиль" onclick="openProfile()">👤</span>
+                <span title="Настройки" onclick="switchTab('settings')">⚙️</span>
+            </div>
+        </div>
+
+        <div class="filters" id="chat-filters">
+            <div class="chip active" onclick="filterChats('all')">Все</div>
+            <div class="chip" onclick="filterChats('unread')">Непрочитанные</div>
+            <div class="chip" onclick="filterChats('groups')">Группы</div>
+        </div>
+
+        <!-- Вкладка: Чаты -->
+        <div id="tab-chats" class="tab-content active">
+            <div id="chats-list-container"></div>
+        </div>
+
+        <!-- Вкладка: Звонки -->
+        <div id="tab-calls" class="tab-content">
+            <div class="settings-list">
+                <div class="setting-item" onclick="startCall('12345', false)">
+                    <div class="setting-icon">📞</div>
+                    <div>
+                        <div class="setting-title">Голосовой вызов</div>
+                        <div class="setting-sub">Позвонить в тестовый контакт</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Вкладка: Контакты -->
+        <div id="tab-contacts" class="tab-content">
+            <div id="contacts-list-container" class="settings-list"></div>
+        </div>
+
+        <!-- Вкладка: Настройки -->
+        <div id="tab-settings" class="tab-content">
+            <div class="settings-list">
+                <div class="setting-item" onclick="openProfile()">
+                    <div class="setting-icon">👤</div>
+                    <div>
+                        <div class="setting-title" id="settings-my-name">Профиль</div>
+                        <div class="setting-sub" id="settings-my-status">Изменить статус или имя</div>
+                    </div>
+                </div>
+                <div class="setting-item">
+                    <div class="setting-icon">🌙</div>
+                    <div>
+                        <div class="setting-title">Тема оформления</div>
+                        <div class="setting-sub">Темная (по умолчанию)</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="fab" id="main-fab" onclick="handleFabClick()">💬</div>
+
+        <div class="bottom-nav">
+            <div class="nav-item active" onclick="switchTab('chats', this)">
+                <div class="nav-icon-wrapper">💬</div>
+                <span>Чаты</span>
+            </div>
+            <div class="nav-item" onclick="switchTab('calls', this)">
+                <div class="nav-icon-wrapper">📞</div>
+                <span>Звонки</span>
+            </div>
+            <div class="nav-item" onclick="switchTab('contacts', this)">
+                <div class="nav-icon-wrapper">👥</div>
+                <span>Контакты</span>
+            </div>
+            <div class="nav-item" onclick="switchTab('settings', this)">
+                <div class="nav-icon-wrapper">⚙️</div>
+                <span>Настройки</span>
+            </div>
+        </div>
+
+        <!-- Экран Профиля -->
+        <div id="profile-screen">
+            <div class="profile-header">
+                <span class="back-btn" onclick="closeProfile()">✕</span>
+                <span style="font-size:18px; font-weight:500;">Профиль</span>
+            </div>
+            <div class="profile-avatar-big" id="profile-big-avatar">U</div>
+            <div class="profile-field-group">
+                <div class="profile-label">Ваше имя</div>
+                <input type="text" id="profile-name-input" class="profile-input" value="User">
+            </div>
+            <div class="profile-field-group">
+                <div class="profile-label">О себе</div>
+                <input type="text" id="profile-status-input" class="profile-input" value="В сети WhatsDoggy">
+            </div>
+        </div>
+
+        <!-- Экран Чата -->
+        <div id="chat-window">
+            <div class="chat-window-header">
+                <div class="chat-header-left">
+                    <span class="back-btn" onclick="closeChat()">←</span>
+                    <div class="chat-avatar-small" id="active-chat-avatar">A</div>
+                    <div>
+                        <div class="chat-user-title" id="active-chat-name">Имя</div>
+                        <div style="font-size: 11px; color: #8696a0;" id="active-chat-status">в сети</div>
+                    </div>
+                </div>
+                <div class="top-icons">
+                    <span onclick="startCall(activeChatPhone, true)">📹</span>
+                    <span onclick="startCall(activeChatPhone, false)">📞</span>
+                </div>
+            </div>
+
+            <div class="chat-messages-area" id="chat-messages-container"></div>
+
+            <div class="chat-input-bar">
+                <label class="action-icon" title="Прикрепить фото">
+                    📎 <input type="file" id="image-input" accept="image/*" style="display: none;" onchange="handleImageUpload(event)">
+                </label>
+                <div class="chat-input-container">
+                    <input type="text" id="chat-input" placeholder="Введите сообщение" onkeydown="if(event.key==='Enter') sendMessage()">
+                </div>
+                <span class="action-icon" id="mic-send-btn" onclick="handleMicClick()" title="Записать голос">🎤</span>
+                <div class="send-btn-circle" onclick="sendMessage()">➤</div>
+            </div>
+        </div>
+
+        <!-- Экран Звонка -->
+        <div id="call-screen">
+            <div>
+                <div style="color: #8696a0; font-size: 14px;" id="call-status-text">Вызов...</div>
+                <h2 style="color: #e9edef; margin-top: 10px;" id="call-user-name">Имя</h2>
+            </div>
+            <div class="call-user-avatar" id="call-avatar-screen">U</div>
+            <div class="call-controls">
+                <button class="call-btn btn-mute" onclick="toggleMute()">🎤</button>
+                <button class="call-btn btn-end" onclick="endCall()">📴</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const socket = io();
+        let activeChatPhone = null;
+        let chatsMap = new Map();
+        let savedContacts = [];
+        let myProfile = { name: "User", status: "В сети WhatsDoggy" };
+        
+        let mediaRecorder = null;
+        let audioChunks = [];
+        let isRecording = false;
+
+        socket.on('qr', (data) => {
+            const qrImg = document.getElementById('qr-image');
+            const loader = document.getElementById('qr-loader');
+            if (data.qr) {
+                qrImg.src = data.qr;
+                qrImg.style.display = 'block';
+                loader.style.display = 'none';
+            }
+        });
+
+        socket.on('ready', () => {
+            document.getElementById('qr-screen').style.display = 'none';
+            document.getElementById('app-screen').style.display = 'flex';
+            socket.emit('get_contacts');
+        });
+
+        socket.on('contacts', (contacts) => {
+            savedContacts = contacts;
+            renderContacts();
+        });
+
+        socket.on('message', (msg) => {
+            let phone = msg.from;
+            if (!chatsMap.has(phone)) {
+                let contact = savedContacts.find(c => c.phone === phone);
+                chatsMap.set(phone, {
+                    name: contact ? contact.name : phone,
+                    phone: phone,
+                    messages: [],
+                    unread: 0
+                });
+            }
+            let chat = chatsMap.get(phone);
+            chat.messages.push({
+                text: msg.text,
+                time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                fromMe: false,
+                type: msg.type || 'text'
+            });
+            if (activeChatPhone !== phone) {
+                chat.unread++;
+            }
+            renderChats();
+            if (activeChatPhone === phone) {
+                renderMessages(phone);
+            }
+        });
+
+        function switchTab(tabId, el) {
+            document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+            
+            document.getElementById('tab-' + tabId).classList.add('active');
+            if (el) el.classList.add('active');
+
+            const fab = document.getElementById('main-fab');
+            if (tabId === 'contacts') fab.style.display = 'none';
+            else fab.style.display = 'flex';
+        }
+
+        function renderChats() {
+            const container = document.getElementById('chats-list-container');
+            container.innerHTML = '';
+            chatsMap.forEach((chat, phone) => {
+                let lastMsg = chat.messages[chat.messages.length - 1];
+                let lastText = lastMsg ? (lastMsg.type === 'image' ? '📷 Изображение' : lastMsg.type === 'audio' ? '🎤 Голосовое сообщение' : lastMsg.text) : 'Нет сообщений';
+                
+                let div = document.createElement('div');
+                div.className = 'chat-item';
+                div.onclick = () => openChat(phone);
+                div.innerHTML = `
+                    <div class="avatar">${chat.name.charAt(0).toUpperCase()}</div>
+                    <div class="chat-info">
+                        <div class="chat-header">
+                            <span class="chat-name">${chat.name}</span>
+                            <span class="chat-time">${lastMsg ? lastMsg.time : ''}</span>
+                        </div>
+                        <div class="chat-last-msg">${lastMsg && lastMsg.fromMe ? '<span class="ticks">✓✓</span>' : ''} ${lastText}</div>
+                    </div>
+                `;
+                container.appendChild(div);
+            });
+        }
+
+        function renderContacts() {
+            const container = document.getElementById('contacts-list-container');
+            container.innerHTML = '';
+            savedContacts.forEach(contact => {
+                let div = document.createElement('div');
+                div.className = 'setting-item';
+                div.onclick = () => openChat(contact.phone);
+                div.innerHTML = `
+                    <div class="avatar" style="width:40px; height:40px; font-size:16px;">${contact.name.charAt(0).toUpperCase()}</div>
+                    <div>
+                        <div class="setting-title">${contact.name}</div>
+                        <div class="setting-sub">${contact.phone}</div>
+                    </div>
+                `;
+                container.appendChild(div);
+            });
+        }
+
+        function openChat(phone) {
+            activeChatPhone = phone;
+            let chat = chatsMap.get(phone);
+            if (!chat) {
+                let contact = savedContacts.find(c => c.phone === phone);
+                chat = {
+                    name: contact ? contact.name : phone,
+                    phone: phone,
+                    messages: [],
+                    unread: 0
+                };
+                chatsMap.set(phone, chat);
+            }
+            document.getElementById('active-chat-name').innerText = chat.name;
+            document.getElementById('active-chat-avatar').innerText = chat.name.charAt(0).toUpperCase();
+            document.getElementById('chat-window').style.display = 'flex';
+            renderMessages(phone);
+        }
+
+        function closeChat() {
+            document.getElementById('chat-window').style.display = 'none';
+            activeChatPhone = null;
+            renderChats();
+        }
+
+        function openProfile() {
+            document.getElementById('profile-screen').style.display = 'flex';
+        }
+
+        function closeProfile() {
+            document.getElementById('profile-screen').style.display = 'none';
+            myProfile.name = document.getElementById('profile-name-input').value;
+            myProfile.status = document.getElementById('profile-status-input').value;
+            initProfileUI();
+        }
+
+        function initProfileUI() {
+            document.getElementById('profile-big-avatar').innerText = myProfile.name.charAt(0).toUpperCase();
+            document.getElementById('settings-my-name').innerText = myProfile.name;
+            document.getElementById('settings-my-status').innerText = myProfile.status;
+        }
+
+        function renderMessages(phone) {
+            const container = document.getElementById('chat-messages-container');
+            container.innerHTML = '';
+            let chat = chatsMap.get(phone);
+            if (!chat) return;
+
+            chat.messages.forEach(msg => {
+                let bubble = document.createElement('div');
+                bubble.className = `msg-bubble ${msg.fromMe ? 'msg-outgoing' : 'msg-incoming'}`;
+                
+                let contentHtml = '';
+                if (msg.type === 'image') {
+                    contentHtml = `<img src="${msg.text}" alt="image">`;
+                } else if (msg.type === 'audio') {
+                    contentHtml = `
+                        <div class="voice-player">
+                            <button class="voice-play-btn" onclick="playVoice(this, '${msg.text}')">▶</button>
+                            <div class="voice-wave">
+                                <div class="voice-bar active"></div>
+                                <div class="voice-bar"></div>
+                                <div class="voice-bar"></div>
+                                <div class="voice-bar"></div>
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    contentHtml = `<span>${msg.text}</span>`;
+                }
+
+                bubble.innerHTML = `
+                    ${contentHtml}
+                    <span class="msg-time">${msg.time} ${msg.fromMe ? '<span class="ticks">✓✓</span>' : ''}</span>
+                `;
+                container.appendChild(bubble);
+            });
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function sendMessage() {
+            const input = document.getElementById('chat-input');
+            const text = input.value.trim();
+            if (!text || !activeChatPhone) return;
+
+            socket.emit('send_message', { to: activeChatPhone, text: text });
+
+            const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            const chat = chatsMap.get(activeChatPhone);
+            if (chat) {
+                chat.messages.push({ text: text, time: timeStr, fromMe: true, type: 'text' });
+            }
+
+            input.value = '';
+            renderMessages(activeChatPhone);
+            renderChats();
+        }
+
+        function handleImageUpload(event) {
+            const file = event.target.files[0];
+            if (!file || !activeChatPhone) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const base64Image = e.target.result;
+                socket.emit('send_message', { to: activeChatPhone, text: base64Image, type: 'image' });
+
+                const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                const chat = chatsMap.get(activeChatPhone);
+                if (chat) {
+                    chat.messages.push({ text: base64Image, time: timeStr, fromMe: true, type: 'image' });
+                }
+                renderMessages(activeChatPhone);
+                renderChats();
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function playVoice(btn, audioSrc) {
+            const audio = new Audio(audioSrc);
+            audio.play().catch(e => console.log(e));
+        }
+
+        async function handleMicClick() {
+            const micBtn = document.getElementById('mic-send-btn');
+            if (!isRecording) {
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    mediaRecorder = new MediaRecorder(stream);
+                    audioChunks = [];
+
+                    mediaRecorder.ondataavailable = event => {
+                        audioChunks.push(event.data);
+                    };
+
+                    mediaRecorder.onstop = () => {
+                        const audioBlob = new Blob(audioChunks, { type: 'audio/mp3' });
+                        const reader = new FileReader();
+                        reader.onload = function(e) {
+                            const base64Audio = e.target.result;
+                            if (activeChatPhone) {
+                                socket.emit('send_message', { to: activeChatPhone, text: base64Audio, type: 'audio' });
+                                const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                                const chat = chatsMap.get(activeChatPhone);
+                                if (chat) {
+                                    chat.messages.push({ text: base64Audio, time: timeStr, fromMe: true, type: 'audio' });
+                                }
+                                renderMessages(activeChatPhone);
+                                renderChats();
+                            }
+                        };
+                        reader.readAsDataURL(audioBlob);
+                    };
+
+                    mediaRecorder.start();
+                    isRecording = true;
+                    micBtn.classList.add('recording-indicator');
+                } catch (e) {
+                    alert('Не удалось получить доступ к микрофону.');
+                }
+            } else {
+                mediaRecorder.stop();
+                isRecording = false;
+                micBtn.classList.remove('recording-indicator');
+            }
+        }
+
+        function startCall(phone, isVideo) {
+            if (!phone) return;
+            let contact = savedContacts.find(c => c.phone === phone);
+            let name = contact ? contact.name : phone;
+
+            document.getElementById('call-user-name').innerText = name;
+            document.getElementById('call-avatar-screen').innerText = name.charAt(0).toUpperCase();
+            document.getElementById('call-status-text').innerText = isVideo ? 'Видеовызов...' : 'Вызов...';
+            document.getElementById('call-screen').style.display = 'flex';
+        }
+
+        function endCall() {
+            document.getElementById('call-screen').style.display = 'none';
+        }
+
+        function toggleMute() {
+            alert('Микрофон переключен');
+        }
+
+        initProfileUI();
+    </script>
+</body>
+</html>
