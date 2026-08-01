@@ -1,4 +1,4 @@
-﻿﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
@@ -169,7 +169,7 @@
         .nav-icon-wrapper { padding: 4px 14px; border-radius: 16px; font-size: 18px; }
         .nav-item.active .nav-icon-wrapper { background-color: #103629; color: #25d366; }
 
-        /* Подэкран редактирования профиля */
+        /* Экран профиля */
         #profile-screen {
             display: none;
             position: absolute;
@@ -487,8 +487,6 @@
     const socket = io();
     const chatsMap = new Map();
     let savedContacts = JSON.parse(localStorage.getItem('doggy_contacts') || '[]');
-    
-    // Загрузка данных профиля из localStorage или дефолтные значения
     let userProfile = JSON.parse(localStorage.getItem('doggy_profile') || JSON.stringify({ name: 'Пользователь WhatsDoggy', status: 'В сети' }));
 
     let activeChatPhone = null;
@@ -498,7 +496,6 @@
     let callSeconds = 0;
     let activeCallType = null;
 
-    // Инициализация профиля при загрузке
     function initProfileUI() {
         document.getElementById('settings-my-name').innerText = userProfile.name;
         document.getElementById('settings-my-status').innerText = userProfile.status;
@@ -523,11 +520,17 @@
     }
 
     function openProfileScreen() {
-        document.getElementById('profile-screen').style.display = 'flex';
+        const profileScreen = document.getElementById('profile-screen');
+        if (profileScreen) {
+            profileScreen.style.display = 'flex';
+        }
     }
 
     function closeProfileScreen() {
-        document.getElementById('profile-screen').style.display = 'none';
+        const profileScreen = document.getElementById('profile-screen');
+        if (profileScreen) {
+            profileScreen.style.display = 'none';
+        }
     }
 
     socket.on('connect', () => {
@@ -610,6 +613,8 @@
 
         const fab = document.getElementById('main-fab');
         const title = document.getElementById('page-title');
+
+        closeProfileScreen();
 
         if (tabName === 'chats') {
             title.innerText = 'WhatsDoggy';
