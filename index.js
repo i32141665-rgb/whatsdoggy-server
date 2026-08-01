@@ -94,8 +94,12 @@ app.post('/api/send', async (req, res) => {
             if (type === 'image') {
                 await sock.sendMessage(jid, { image: buffer, caption: message || '' });
             } else if (type === 'audio') {
-                // Отправляем как аудио без жесткого принуждения ptt, чтобы файл гарантированно доходил до WhatsApp без сбоев кодирования
-                await sock.sendMessage(jid, { audio: buffer, mimetype: 'audio/mp4', ptt: true });
+                // Отправляем как документ аудиопотока, чтобы WhatsApp гарантированно принял файл без ошибок кодека
+                await sock.sendMessage(jid, { 
+                    audio: buffer, 
+                    mimetype: 'audio/mp4',
+                    ptt: false 
+                });
             }
         } else {
             await sock.sendMessage(jid, { text: message });
