@@ -88,7 +88,7 @@
 
     <div id="qr-screen">
         <h2>WhatsDoggy</h2>
-        <p>Используйте камеру телефона для сканирования QR-кода</p>
+        <p>Сканируйте QR-код в официальном WhatsApp</p>
         <div class="qr-box">
             <div id="qr-loader">Генерация QR...</div>
             <img id="qr-image" alt="WhatsApp QR Code">
@@ -136,7 +136,7 @@
             </div>
         </div>
 
-        <div class="fab" id="main-fab" onclick="handleFabClick()" title="Новый чат">➕</div>
+        <div class="fab" id="main-fab" onclick="handleFabClick()" title="Новый контакт">➕</div>
 
         <div class="bottom-nav">
             <div class="nav-item active" onclick="switchTab('chats', this)">
@@ -191,9 +191,9 @@
                     📎 <input type="file" id="image-input" accept="image/*" style="display: none;" onchange="handleImageUpload(event)">
                 </label>
                 <div class="chat-input-container">
-                    <input type="text" id="chat-input" placeholder="Введите сообщение" onkeydown="if(event.key==='Enter') sendMessage()">
+                    <input type="text" id="chat-input" placeholder="Введите сообщение..." onkeydown="if(event.key==='Enter') sendMessage()">
                 </div>
-                <span class="action-icon" id="mic-send-btn" onclick="handleMicClick()" title="Записать голос">🎤</span>
+                <span class="action-icon" id="mic-send-btn" onclick="handleMicClick()" title="Записать MP3 аудио">🎤</span>
                 <div class="send-btn-circle" onclick="sendMessage()">➤</div>
             </div>
         </div>
@@ -267,9 +267,8 @@
             if (el) el.classList.add('active');
         }
 
-        // Функция добавления контакта с сохранением имени и телефона в localStorage
         function handleFabClick() {
-            let phoneInput = prompt('Введите номер телефона (например, +7 776 773 72 16):');
+            let phoneInput = prompt('Введите номер телефона (например, +77767737216):');
             if (!phoneInput) return;
             let nameInput = prompt('Введите имя контакта:', 'Контакт');
             if (!nameInput) nameInput = phoneInput;
@@ -300,7 +299,7 @@
             chatsMap.forEach((chat, phone) => {
                 if (phone.includes('lid')) return;
                 let lastMsg = chat.messages[chat.messages.length - 1];
-                let lastText = lastMsg ? (lastMsg.type === 'image' ? '📷 Изображение' : lastMsg.type === 'audio' ? '🎤 Голосовое сообщение' : lastMsg.text) : 'Нет сообщений';
+                let lastText = lastMsg ? (lastMsg.type === 'image' ? '📷 Изображение' : lastMsg.type === 'audio' ? '🎵 MP3 Аудио' : lastMsg.text) : 'Нет сообщений';
                 
                 let div = document.createElement('div');
                 div.className = 'chat-item';
@@ -445,7 +444,7 @@
                     mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
                     
                     mediaRecorder.onstop = () => {
-                        const blob = new Blob(audioChunks, { type: 'audio/mp4' });
+                        const blob = new Blob(audioChunks, { type: 'audio/mp3' });
                         const reader = new FileReader();
                         reader.onload = function(e) {
                             const base64Audio = e.target.result;
@@ -466,7 +465,7 @@
                     isRecording = true;
                     micBtn.classList.add('recording-indicator');
                 } catch (e) {
-                    alert('Нет доступа к микрофону в браузере');
+                    alert('Нет доступа к микрофону');
                 }
             } else {
                 mediaRecorder.stop();
