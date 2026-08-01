@@ -70,7 +70,7 @@
             align-items: center;
         }
         .top-bar h1 { font-size: 22px; font-weight: 600; color: #e9edef; }
-        .top-icons { display: flex; gap: 20px; color: #aebac1; font-size: 20px; cursor: pointer; }
+        .top-icons { display: flex; gap: 15px; color: #aebac1; font-size: 20px; cursor: pointer; align-items: center; }
 
         .filters {
             display: flex;
@@ -153,6 +153,7 @@
             font-size: 24px;
             box-shadow: 0 4px 12px rgba(0,0,0,0.4);
             cursor: pointer;
+            z-index: 10;
         }
 
         .bottom-nav {
@@ -163,9 +164,9 @@
             justify-content: space-around;
             align-items: center;
         }
-        .nav-item { display: flex; flex-direction: column; align-items: center; gap: 4px; color: #8696a0; font-size: 12px; cursor: pointer; }
+        .nav-item { display: flex; flex-direction: column; align-items: center; gap: 4px; color: #8696a0; font-size: 11px; cursor: pointer; }
         .nav-item.active { color: #e9edef; }
-        .nav-icon-wrapper { padding: 4px 18px; border-radius: 16px; font-size: 18px; }
+        .nav-icon-wrapper { padding: 4px 14px; border-radius: 16px; font-size: 18px; }
         .nav-item.active .nav-icon-wrapper { background-color: #103629; color: #25d366; }
 
         #chat-window {
@@ -293,8 +294,8 @@
     <div class="top-bar">
         <h1 id="page-title">WhatsDoggy</h1>
         <div class="top-icons">
+            <span onclick="openNewContactPrompt()" title="Добавить контакт" style="font-size: 18px; cursor: pointer;">➕👤</span>
             <span onclick="alert('Камера пока не подключена')">📷</span>
-            <span onclick="alert('Поиск работает по чатам')">🔍</span>
             <span onclick="switchTab('settings')">⋮</span>
         </div>
     </div>
@@ -310,16 +311,21 @@
         <div class="chats-list" id="chats-list"></div>
     </div>
 
-    <!-- Вкладка 2: Звонки -->
+    <!-- Вкладка 2: Контакты (Сохраненные) -->
+    <div id="tab-contacts" class="tab-content">
+        <div class="settings-list" id="contacts-list"></div>
+    </div>
+
+    <!-- Вкладка 3: Звонки -->
     <div id="tab-calls" class="tab-content">
         <div class="settings-list" id="calls-list">
             <div style="padding: 20px; text-align: center; color: #8696a0;">
-                Здесь будет история вызовов.<br>Нажмите на значок ниже, чтобы позвонить.
+                Здесь будет история вызовов.
             </div>
         </div>
     </div>
 
-    <!-- Вкладка 3: Настройки -->
+    <!-- Вкладка 4: Настройки -->
     <div id="tab-settings" class="tab-content">
         <div class="settings-list">
             <div class="setting-item">
@@ -329,18 +335,11 @@
                     <div class="setting-sub">В сети</div>
                 </div>
             </div>
-            <div class="setting-item" onclick="alert('WhatsDoggy v1.0.0\nВсе системы работают нормально.')">
-                <div class="setting-icon">⚙️</div>
+            <div class="setting-item" onclick="clearChatsOnly()">
+                <div class="setting-icon">🗑️</div>
                 <div>
-                    <div class="setting-title">Аккаунт и безопасность</div>
-                    <div class="setting-sub">Конфиденциальность, безопасность</div>
-                </div>
-            </div>
-            <div class="setting-item" onclick="alert('Уведомления включены.')">
-                <div class="setting-icon">🔔</div>
-                <div>
-                    <div class="setting-title">Уведомления</div>
-                    <div class="setting-sub">Звуки, сообщения, вызовы</div>
+                    <div class="setting-title">Стереть все чаты</div>
+                    <div class="setting-sub">Очистить сообщения, сохранив контакты</div>
                 </div>
             </div>
             <div class="setting-item" onclick="logoutSession()">
@@ -360,6 +359,10 @@
         <div class="nav-item active" id="nav-chats" onclick="switchTab('chats')">
             <div class="nav-icon-wrapper">💬</div>
             <span>Чаты</span>
+        </div>
+        <div class="nav-item" id="nav-contacts" onclick="switchTab('contacts')">
+            <div class="nav-icon-wrapper">📖</div>
+            <span>Контакты</span>
         </div>
         <div class="nav-item" id="nav-calls" onclick="switchTab('calls')">
             <div class="nav-icon-wrapper">📞</div>
@@ -417,6 +420,8 @@
 <script>
     const socket = io();
     const chatsMap = new Map();
+    // Загружаем сохраненные контакты из памяти браузера (localStorage)
+    let savedContacts = JSON.parse(localStorage.getItem('doggy_contacts') || '[]');
     let activeChatPhone = null;
     let currentTab = 'chats';
     let currentFilter = 'all';
@@ -442,38 +447,47 @@
         if (data.connected) {
             document.getElementById('qr-screen').style.display = 'none';
             document.getElementById('app-screen').style.display = 'flex';
+            renderContacts();
         } else {
             document.getElementById('qr-screen').style.display = 'flex';
             document.getElementById('app-screen').style.display = 'none';
         }
     });
 
-    // Функция для очистки и нормализации номеров/ID в единый формат
     function cleanId(rawId) {
         if (!rawId) return '';
-        let clean = rawId.replace('@s.whatsapp.net', '').replace('@lid', '').replace('@g.us', '');
-        // Если это длинный LID (как 255133975842869), оставляем как есть, 
-        // но если в чатах уже есть короткий номер или наоборот — можно привязать.
-        // Для простоты заменим длинные LID-ключи на стандартный формат, если это возможно, 
-        // либо объединим их. Здесь просто уберем суффиксы.
-        return clean;
+        return rawId.replace('@s.whatsapp.net', '').replace('@lid', '').replace('@g.us', '');
+    }
+
+    // Сохранение контакта в постоянную память браузера
+    function addContact(phone, name = '') {
+        let clean = cleanId(phone);
+        if (!clean) return;
+        let displayName = name ? name : clean;
+        
+        if (!savedContacts.some(c => c.phone === clean)) {
+            savedContacts.push({ phone: clean, name: displayName });
+            localStorage.setItem('doggy_contacts', JSON.stringify(savedContacts));
+            renderContacts();
+        }
     }
 
     socket.on('new_message', (data) => {
         let rawSender = cleanId(data.from);
-        
-        // Автоматически объединяем дубликаты (если номер пришел с LID или обычным JID)
-        // Ищем, нет ли уже чата с похожим именем или если это тот самый контакт
         let targetKey = rawSender;
         if (rawSender.length > 13) {
-            // Если это длинный ID, проверим, нет ли уже чата без длинного ID, или зафиксируем
-            targetKey = '77767737216'; // Принудительно приводим твой конкретный номер к единому виду
+            targetKey = '77767737216'; 
         }
+
+        // Автоматически добавляем входящего в сохраненные контакты
+        addContact(targetKey);
 
         const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         
         if (!chatsMap.has(targetKey)) {
-            chatsMap.set(targetKey, { name: targetKey, messages: [], unread: !data.fromMe, isGroup: targetKey.includes('-') });
+            let contact = savedContacts.find(c => c.phone === targetKey);
+            let chatName = contact ? contact.name : targetKey;
+            chatsMap.set(targetKey, { name: chatName, messages: [], unread: !data.fromMe, isGroup: targetKey.includes('-') });
         }
 
         const chat = chatsMap.get(targetKey);
@@ -501,6 +515,11 @@
             title.innerText = 'WhatsDoggy';
             fab.innerText = '💬';
             fab.style.display = 'flex';
+        } else if (tabName === 'contacts') {
+            title.innerText = 'Контакты';
+            fab.innerText = '➕';
+            fab.style.display = 'flex';
+            renderContacts();
         } else if (tabName === 'calls') {
             title.innerText = 'Звонки';
             fab.innerText = '📞';
@@ -519,12 +538,41 @@
     }
 
     function handleFabClick() {
-        if (currentTab === 'chats') {
-            openNewChatPrompt();
+        if (currentTab === 'chats' || currentTab === 'contacts') {
+            openNewContactPrompt();
         } else if (currentTab === 'calls') {
-            const phone = prompt('Введите номер для звонка (например, 77022549478):');
+            const phone = prompt('Введите номер для звонка:');
             if (phone) startCall(phone, false);
         }
+    }
+
+    function renderContacts() {
+        const container = document.getElementById('contacts-list');
+        container.innerHTML = '';
+
+        if (savedContacts.length === 0) {
+            container.innerHTML = `<div style="padding: 20px; text-align: center; color: #8696a0;">Нет сохраненных контактов.<br>Нажмите плюсик сверху, чтобы добавить.</div>`;
+            return;
+        }
+
+        savedContacts.forEach(contact => {
+            const item = document.createElement('div');
+            item.className = 'chat-item';
+            item.onclick = () => openChat(contact.phone);
+            
+            item.innerHTML = `
+                <div class="avatar">${contact.name.charAt(0).toUpperCase()}</div>
+                <div class="chat-info">
+                    <div class="chat-header">
+                        <span class="chat-name">${contact.name}</span>
+                    </div>
+                    <div class="chat-last-msg">
+                        <span>${contact.phone}</span>
+                    </div>
+                </div>
+            `;
+            container.appendChild(item);
+        });
     }
 
     function renderChats() {
@@ -532,7 +580,6 @@
         container.innerHTML = '';
 
         chatsMap.forEach((chat, phone) => {
-            // Фильтрация
             if (currentFilter === 'unread' && !chat.unread) return;
             if (currentFilter === 'fav' && !chat.isFav) return;
             if (currentFilter === 'groups' && !chat.isGroup) return;
@@ -566,10 +613,15 @@
 
     function openChat(phone) {
         activeChatPhone = phone;
-        const chat = chatsMap.get(phone);
+        let contact = savedContacts.find(c => c.phone === phone);
+        let chatName = contact ? contact.name : phone;
+
+        if (!chatsMap.has(phone)) {
+            chatsMap.set(phone, { name: chatName, messages: [], unread: false, isGroup: false });
+        }
         
-        document.getElementById('chat-title').innerText = chat ? chat.name : phone;
-        document.getElementById('chat-avatar').innerText = (chat ? chat.name : phone).charAt(0).toUpperCase();
+        document.getElementById('chat-title').innerText = chatName;
+        document.getElementById('chat-avatar').innerText = chatName.charAt(0).toUpperCase();
         document.getElementById('chat-window').style.display = 'flex';
         renderMessages(phone);
     }
@@ -617,13 +669,21 @@
         }
     }
 
-    function openNewChatPrompt() {
+    function openNewContactPrompt() {
         const phone = prompt('Введите номер телефона (например, 77022549478):');
         if (phone) {
-            if (!chatsMap.has(phone)) {
-                chatsMap.set(phone, { name: phone, messages: [], unread: false, isGroup: false });
-            }
-            openChat(phone);
+            const name = prompt('Введите имя контакта (необязательно):') || phone;
+            let clean = cleanId(phone);
+            addContact(clean, name);
+            openChat(clean);
+        }
+    }
+
+    function clearChatsOnly() {
+        if (confirm('Стереть все чаты и сообщения? Ваши сохраненные контакты останутся на месте.')) {
+            chatsMap.clear();
+            renderChats();
+            alert('Все чаты успешно очищены!');
         }
     }
 
