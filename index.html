@@ -632,7 +632,7 @@
         }
     });
 
-    // ПОЛНЫЙ ФИЛЬТР: Жестко блокирует длинные системные ID и пропускает только чистые номера/контакты
+    // Строгий фильтр: отсекает любые длинные системные ID
     function resolveSender(rawId) {
         if (!rawId) return null;
         let clean = rawId.replace('@s.whatsapp.net', '').replace('@lid', '').replace('@g.us', '').replace(/:.*/, '');
@@ -731,6 +731,7 @@
         }
     }
 
+    // ИСПРАВЛЕНО: отображает только реально сохраненные тобой контакты, исключая любой мусор
     function renderContacts() {
         const container = document.getElementById('contacts-list');
         container.innerHTML = '';
