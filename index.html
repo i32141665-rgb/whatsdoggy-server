@@ -203,7 +203,7 @@
         const socket = io();
         let activeChatPhone = null;
         let chatsMap = new Map();
-        let savedContacts = [];
+        let savedContacts = JSON.parse(localStorage.getItem('saved_contacts') || '[]');
         let myProfile = { name: "User", status: "В сети WhatsDoggy" };
         let mediaRecorder = null;
         let audioChunks = [];
@@ -226,8 +226,12 @@
         });
 
         socket.on('contacts', (contacts) => {
-            savedContacts = contacts;
-            renderContacts();
+            contacts.forEach(c => {
+                if (!savedContacts.some(sc => sc.phone === c.phone)) {
+                    savedContacts.push(c);
+                }
+            });
+            saveAndRenderContacts();
         });
 
         socket.on('message', (msg) => {
@@ -263,12 +267,31 @@
             if (el) el.classList.add('active');
         }
 
+        // Функция добавления контакта с сохранением имени и телефона в localStorage
         function handleFabClick() {
-            let phone = prompt('Введите номер телефона (например, +7 776 773 72 16):');
-            if (phone) {
-                let cleanPhone = phone.replace(/\D/g, '');
-                openChat(cleanPhone);
+            let phoneInput = prompt('Введите номер телефона (например, +7 776 773 72 16):');
+            if (!phoneInput) return;
+            let nameInput = prompt('Введите имя контакта:', 'Контакт');
+            if (!nameInput) nameInput = phoneInput;
+
+            let cleanPhone = phoneInput.replace(/\D/g, '');
+            if (cleanPhone.startsWith('8') && cleanPhone.length === 11) {
+                cleanPhone = '7' + cleanPhone.slice(1);
+            } else if (cleanPhone.length === 10) {
+                cleanPhone = '7' + cleanPhone;
             }
+
+            if (!savedContacts.some(c => c.phone === cleanPhone)) {
+                savedContacts.push({ name: nameInput, phone: cleanPhone });
+                saveAndRenderContacts();
+            }
+
+            openChat(cleanPhone);
+        }
+
+        function saveAndRenderContacts() {
+            localStorage.setItem('saved_contacts', JSON.stringify(savedContacts));
+            renderContacts();
         }
 
         function renderChats() {
@@ -422,7 +445,7 @@
                     mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
                     
                     mediaRecorder.onstop = () => {
-                        const blob = new Blob(audioChunks, { type: 'audio/webm' });
+                        const blob = new Blob(audioChunks, { type: 'audio/mp4' });
                         const reader = new FileReader();
                         reader.onload = function(e) {
                             const base64Audio = e.target.result;
