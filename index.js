@@ -90,7 +90,6 @@ io.on('connection', (socket) => {
 
     socket.on('get_contacts', async () => {
         try {
-            // Получаем реальные контакты из WhatsApp аккаунта
             if (sock && sock.store && sock.store.contacts) {
                 const contactsArr = Object.values(sock.store.contacts).map(c => ({
                     name: c.name || c.notify || c.id.replace('@s.whatsapp.net', ''),
@@ -105,19 +104,11 @@ io.on('connection', (socket) => {
         }
     });
 
-    // Исправленная отправка сообщений с проверкой номера через Baileys
+    // Прямая и стабильная отправка сообщений в реальный WhatsApp
     socket.on('send_message', async (data) => {
         try {
             let cleanTo = data.to.replace('@s.whatsapp.net', '').replace(/\D/g, '').trim();
-            
-            // Проверяем существование номера в WhatsApp перед отправкой
-            const [result] = await sock.onWhatsApp(cleanTo);
-            if (!result || !result.exists) {
-                console.error('Номер не зарегистрирован в WhatsApp:', cleanTo);
-                return;
-            }
-            
-            const jid = result.jid; // Точный системный JID абонента
+            const jid = `${cleanTo}@s.whatsapp.net`;
 
             if (data.type === 'image') {
                 const buffer = Buffer.from(data.text.split(',')[1], 'base64');
@@ -128,7 +119,7 @@ io.on('connection', (socket) => {
             } else {
                 await sock.sendMessage(jid, { text: data.text });
             }
-            console.log('Сообщение успешно отправлено на:', jid);
+            console.log('Сообщение отправлено на JID:', jid);
         } catch (error) {
             console.error('Ошибка отправки сообщения:', error);
         }
