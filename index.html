@@ -46,7 +46,7 @@
 
         .fab { position: absolute; bottom: 80px; right: 20px; width: 55px; height: 55px; background-color: #00a884; border-radius: 16px; display: flex; align-items: center; justify-content: center; color: #0b141a; font-size: 24px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); cursor: pointer; z-index: 10; }
 
-        .bottom-nav { height: 65px; background-color: #111b21; border-top: 1px solid #1f2c34; display: flex; justify-content: space-around; align-items: center; flex-shrink: 0; width: 100%; }
+        .bottom-nav { height: 65px; background-color: #111b21; border-top: 1px solid #1f2c34; display: flex; justify-around: space-around; align-items: center; flex-shrink: 0; width: 100%; }
         .nav-item { display: flex; flex-direction: column; align-items: center; gap: 3px; color: #8696a0; font-size: 11px; cursor: pointer; flex: 1; }
         .nav-item.active { color: #e9edef; }
         .nav-icon-wrapper { padding: 4px 14px; border-radius: 16px; font-size: 18px; }
@@ -209,7 +209,6 @@
         let audioChunks = [];
         let isRecording = false;
 
-        // Вспомогательная функция для чистки номеров
         function cleanPhoneNumber(rawPhone) {
             if (!rawPhone) return '';
             let cleaned = rawPhone.split('@')[0].replace(/\D/g, '');
@@ -409,7 +408,6 @@
             container.scrollTop = container.scrollHeight;
         }
 
-        // ОТПРАВКА ОБЫЧНОГО ТЕКСТА
         function sendMessage() {
             const input = document.getElementById('chat-input');
             const text = input.value.trim();
@@ -428,7 +426,6 @@
             renderChats();
         }
 
-        // ОТПРАВКА ИЗОБРАЖЕНИЯ (С проверкой активного чата и очисткой input)
         function handleImageUpload(event) {
             if (!activeChatPhone) {
                 alert('Сначала выберите чат!');
@@ -450,12 +447,11 @@
                 }
                 renderMessages(activeChatPhone);
                 renderChats();
-                event.target.value = ''; // Очистка значения для сброса инпута
+                event.target.value = '';
             };
             reader.readAsDataURL(file);
         }
 
-        // ЗАПИСЬ И ОТПРАВКА ГОЛОСОВОГО (С универсальной поддержкой кодеков браузера)
         async function handleMicClick() {
             if (!activeChatPhone) {
                 alert('Сначала выберите чат!');
@@ -472,7 +468,6 @@
                     mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
                     
                     mediaRecorder.onstop = () => {
-                        // Определение поддерживаемого браузером типа
                         const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 
                                          (MediaRecorder.isTypeSupported('audio/mp3') ? 'audio/mp3' : 'audio/ogg');
                         
