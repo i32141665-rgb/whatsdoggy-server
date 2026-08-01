@@ -17,7 +17,6 @@ const io = new Server(server, {
 
 const PORT = process.env.PORT || 3000;
 
-// Обслуживаем статику (твой index.html)
 const __dirname = path.resolve();
 app.use(express.static(path.join(__dirname)));
 
@@ -26,6 +25,16 @@ let qrCodeData = null;
 let connectionStatus = 'disconnected';
 
 async function startWhatsApp() {
+    // Автоматически очищаем старую сессию при старте, чтобы не зависать
+    try {
+        if (fs.existsSync('auth_info_baileys')) {
+            fs.rmSync('auth_info_baileys', { recursive: true, force: true });
+            console.log('Старая сессия очищена');
+        }
+    } catch (e) {
+        console.error('Ошибка при очистке сессии:', e);
+    }
+
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
     const { version } = await fetchLatestBaileysVersion();
 
@@ -41,21 +50,21 @@ async function startWhatsApp() {
         if (qr) {
             qrCodeData = qr;
             connectionStatus = 'qr';
-            io.emit('qr', qr);
+            io.emit('qr_code', qr); // Передаем на клиент через событие qr_code
         }
 
         if (connection === 'close') {
             const shouldReconnect = lastDisconnect?.error?.output?.statusCode !== DisconnectReason.loggedOut;
             connectionStatus = 'disconnected';
             qrCodeData = null;
-            io.emit('status', 'disconnected');
+            io.emit('connection_status', { connected: false });
             if (shouldReconnect) {
                 startWhatsApp();
             }
         } else if (connection === 'open') {
             connectionStatus = 'connected';
             qrCodeData = null;
-            io.emit('status', 'connected');
+            io.emit('connection_status', { connected: true });
             console.log('WhatsApp успешно подключен!');
         }
     });
@@ -67,48 +76,96 @@ async function startWhatsApp() {
         if (type !== 'notify') return;
         for (const msg of messages) {
             if (!msg.message) continue;
-            io.emit('message', msg);
+            
+            let text = '';
+            let msgType = 'text';
+
+            if (msg.message.conversation) {
+                text = msg.message.conversation;
+            } else if (msg.message.extendedTextMessage) {
+                text = msg.message.extendedTextMessage.text;
+            } else if (msg.message.imageMessage) {
+                text = msg.message.imageMessage.caption || '';
+                msgType = 'image';
+            } else if (msg.message.audioMessage) {
+                msgType = 'audio';
+            }
+
+            const fromMe = msg.key.fromMe;
+            const remoteJid = msg.key.remoteJid;
+
+            io.emit('new_message', {
+                from: remoteJid,
+                text: text,
+                fromMe: fromMe,
+                type: msgType
+            });
         }
     });
 }
 
 // Связь с клиентской частью через Socket.IO
 io.on('connection', (socket) => {
-    socket.emit('status', connectionStatus);
-    if (qrCodeData) {
-        socket.emit('qr', qrCodeData);
-    }
-
-    // Отправка текстовых сообщений
-    socket.on('send-message', async (data) => {
-        try {
-            if (!sock) return;
-            const jid = data.number.includes('@s.whatsapp.net') ? data.number : data.number + '@s.whatsapp.net';
-            await sock.sendMessage(jid, { text: data.text });
-        } catch (e) {
-            console.error('Ошибка отправки сообщения:', e);
+    socket.on('check_status', () => {
+        if (connectionStatus === 'connected') {
+            socket.emit('connection_status', { connected: true });
+        } else if (qrCodeData) {
+            socket.emit('qr_code', qrCodeData);
+        } else {
+            socket.emit('connection_status', { connected: false });
         }
     });
 
-    // Отправка голосовых (важно: ptt: true и mimetype для нормального отображения в WhatsApp)
-    socket.on('send-voice', async (data) => {
-        try {
-            if (!sock) return;
-            const jid = data.number.includes('@s.whatsapp.net') ? data.number : data.number + '@s.whatsapp.net';
-            
-            // Получаем аудио из Base64, которое прислал клиент
-            const base64Data = data.audio.replace(/^data:.*;base64,/, "");
+    // Отправка сообщений и медиа из веб-интерфейса
+    socket.on('api/send', async (data) => {
+        // Поддерживаем оба варианта вызова (прямой fetch от клиента обрабатывается в express-роутах ниже)
+    });
+});
+
+// Express API для отправки сообщений и выхода
+app.post('/api/send', async (req, res) => {
+    try {
+        if (!sock) return res.status(500).json({ error: 'WhatsApp не запущен' });
+        const { number, message, media, type } = req.body;
+        const jid = number.includes('@s.whatsapp.net') ? number : number + '@s.whatsapp.net';
+
+        if (media) {
+            const base64Data = media.replace(/^data:.*;base64,/, "");
             const buffer = Buffer.from(base64Data, 'base64');
 
-            await sock.sendMessage(jid, {
-                audio: buffer,
-                mimetype: 'audio/ogg; codecs=opus',
-                ptt: true // Превращает аудио в полноценное голосовое сообщение с волной
-            });
-        } catch (e) {
-            console.error('Ошибка отправки голосового:', e);
+            if (type === 'image') {
+                await sock.sendMessage(jid, { image: buffer, caption: message || '' });
+            } else if (type === 'audio') {
+                await sock.sendMessage(jid, {
+                    audio: buffer,
+                    mimetype: 'audio/ogg; codecs=opus',
+                    ptt: true // Голосовое сообщение с волной
+                });
+            }
+        } else {
+            await sock.sendMessage(jid, { text: message });
         }
-    });
+
+        res.json({ success: true });
+    } catch (e) {
+        console.error('Ошибка отправки:', e);
+        res.status(500).json({ error: e.message });
+    }
+});
+
+app.post('/api/logout', async (req, res) => {
+    try {
+        if (sock) {
+            await sock.logout();
+        }
+        if (fs.existsSync('auth_info_baileys')) {
+            fs.rmSync('auth_info_baileys', { recursive: true, force: true });
+        }
+        res.json({ success: true });
+        setTimeout(() => process.exit(0), 1000); // Перезапуск процесса для нового QR
+    } catch (e) {
+        res.status(500).json({ error: e.message });
+    }
 });
 
 server.listen(PORT, () => {
