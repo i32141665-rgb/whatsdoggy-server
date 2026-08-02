@@ -20,6 +20,7 @@ app.use(express.static(__dirname));
 
 let sock = null;
 let currentQr = null;
+let isConnected = false;
 
 async function connectToWhatsApp() {
     const { state, saveCreds } = await useMultiFileAuthState('auth_info');
@@ -39,25 +40,32 @@ async function connectToWhatsApp() {
         if (qr) {
             try {
                 currentQr = await qrcode.toDataURL(qr);
+                isConnected = false;
                 io.emit('qr', { qr: currentQr });
+                console.log('[QR] Сгенерирован новый QR-код');
             } catch (err) {
                 console.error('Ошибка генерации QR:', err);
             }
         }
 
         if (connection === 'open') {
-            console.log('WhatsDoggy успешно подключен к сети WhatsApp!');
+            console.log('✅ WhatsDoggy успешно подключен к сети WhatsApp!');
             currentQr = null;
+            isConnected = true;
             io.emit('ready');
         }
 
         if (connection === 'close') {
+            isConnected = false;
             const statusCode = lastDisconnect?.error?.output?.statusCode;
             const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
-            console.log(`Соединение закрыто. Переподключение: ${shouldReconnect}`);
+            console.log(`❌ Соединение закрыто (код ${statusCode}). Переподключение: ${shouldReconnect}`);
             
             if (shouldReconnect) {
                 setTimeout(() => connectToWhatsApp(), 3000);
+            } else {
+                console.log('⚠️ Сессия завершена (Logged Out). Требуется повторный вход.');
+                currentQr = null;
             }
         }
     });
@@ -90,6 +98,7 @@ async function connectToWhatsApp() {
             }
 
             if (messageText) {
+                console.log(`📩 Новое сообщение от ${senderPhone} (${messageType})`);
                 io.emit('message', {
                     from: senderPhone,
                     text: messageText,
@@ -103,21 +112,24 @@ async function connectToWhatsApp() {
 }
 
 io.on('connection', (socket) => {
-    if (currentQr) {
-        socket.emit('qr', { qr: currentQr });
-    } else if (sock && sock.user) {
+    console.log(`🔌 Клиент подключился к Socket.io [id: ${socket.id}]`);
+
+    // Если WhatsApp уже подключен — сразу говорим клиенту открыть интерфейс
+    if (isConnected) {
         socket.emit('ready');
+    } else if (currentQr) {
+        socket.emit('qr', { qr: currentQr });
     }
 
-    // НАДЕЖНАЯ ОТПРАВКА СООБЩЕНИЙ
     socket.on('send_message', async (data) => {
-        if (!sock) {
-            console.error('Ошибка: Сокет WhatsApp не инициализирован!');
+        console.log(`[ПОПЫТКА ОТПРАВКИ] Получены данные от клиента:`, data.to, data.type);
+
+        if (!sock || !isConnected) {
+            console.error('❌ Ошибка: WhatsApp клиент еще не готов!');
             return;
         }
 
         try {
-            // 1. Очищаем номер от любых лишних символов
             let cleanPhone = String(data.to).replace(/\D/g, '').trim();
 
             if (cleanPhone.startsWith('8') && cleanPhone.length === 11) {
@@ -126,7 +138,6 @@ io.on('connection', (socket) => {
                 cleanPhone = '7' + cleanPhone;
             }
 
-            // 2. Запрашиваем официальный JID у WhatsApp
             const [result] = await sock.onWhatsApp(cleanPhone);
             
             if (!result || !result.exists) {
@@ -134,9 +145,8 @@ io.on('connection', (socket) => {
                 return;
             }
 
-            const targetJid = result.jid; // Используем гарантированно правильный JID от WhatsApp
+            const targetJid = result.jid;
 
-            // 3. Отправка в зависимости от типа
             if (data.type === 'image') {
                 const base64Data = data.text.replace(/^data:image\/\w+;base64,/, '');
                 const buffer = Buffer.from(base64Data, 'base64');
@@ -153,15 +163,15 @@ io.on('connection', (socket) => {
                 await sock.sendMessage(targetJid, { text: String(data.text) });
             }
 
-            console.log(`[УСПЕХ] Сообщение типа ${data.type} доставлено на ${targetJid}`);
+            console.log(`✅ [УСПЕХ] Сообщение (${data.type}) отправлено на ${targetJid}`);
         } catch (error) {
-            console.error('Ошибка отправки в WhatsApp:', error);
+            console.error('❌ Ошибка отправки в WhatsApp:', error);
         }
     });
 });
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-    console.log(`Сервер WhatsDoggy запущен на порту ${PORT}`);
+    console.log(`🚀 Сервер WhatsDoggy запущен на порту ${PORT}`);
     connectToWhatsApp();
 });
