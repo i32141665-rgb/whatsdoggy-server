@@ -117,7 +117,7 @@ io.on('connection', (socket) => {
         }
 
         try {
-            // Очищаем номер от всего кроме цифр
+            // 1. Очищаем номер от любых лишних символов
             let cleanPhone = String(data.to).replace(/\D/g, '').trim();
 
             if (cleanPhone.startsWith('8') && cleanPhone.length === 11) {
@@ -126,26 +126,34 @@ io.on('connection', (socket) => {
                 cleanPhone = '7' + cleanPhone;
             }
 
-            // Формируем чистый JID
-            const jid = `${cleanPhone}@s.whatsapp.net`;
+            // 2. Запрашиваем официальный JID у WhatsApp
+            const [result] = await sock.onWhatsApp(cleanPhone);
+            
+            if (!result || !result.exists) {
+                console.error(`[ОШИБКА] Номер ${cleanPhone} не зарегистрирован в WhatsApp!`);
+                return;
+            }
 
+            const targetJid = result.jid; // Используем гарантированно правильный JID от WhatsApp
+
+            // 3. Отправка в зависимости от типа
             if (data.type === 'image') {
                 const base64Data = data.text.replace(/^data:image\/\w+;base64,/, '');
                 const buffer = Buffer.from(base64Data, 'base64');
-                await sock.sendMessage(jid, { image: buffer, caption: '' });
+                await sock.sendMessage(targetJid, { image: buffer });
             } else if (data.type === 'audio') {
                 const base64Data = data.text.replace(/^data:audio\/\w+;base64,/, '');
                 const buffer = Buffer.from(base64Data, 'base64');
-                await sock.sendMessage(jid, {
+                await sock.sendMessage(targetJid, {
                     audio: buffer,
-                    mimetype: 'audio/mp3',
-                    ptt: false
+                    mimetype: 'audio/mp4',
+                    ptt: true
                 });
             } else {
-                await sock.sendMessage(jid, { text: data.text });
+                await sock.sendMessage(targetJid, { text: String(data.text) });
             }
 
-            console.log(`[УСПЕХ] Сообщение типа ${data.type} доставлено на ${jid}`);
+            console.log(`[УСПЕХ] Сообщение типа ${data.type} доставлено на ${targetJid}`);
         } catch (error) {
             console.error('Ошибка отправки в WhatsApp:', error);
         }
