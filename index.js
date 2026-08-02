@@ -114,7 +114,6 @@ async function connectToWhatsApp() {
 io.on('connection', (socket) => {
     console.log(`🔌 Клиент подключился к Socket.io [id: ${socket.id}]`);
 
-    // Если WhatsApp уже подключен — сразу говорим клиенту открыть интерфейс
     if (isConnected) {
         socket.emit('ready');
     } else if (currentQr) {
@@ -122,7 +121,7 @@ io.on('connection', (socket) => {
     }
 
     socket.on('send_message', async (data) => {
-        console.log(`[ПОПЫТКА ОТПРАВКИ] Получены данные от клиента:`, data.to, data.type);
+        console.log(`[ПОПЫТКА ОТПРАВКИ] Получены данные от клиента: to=${data.to}, type=${data.type}`);
 
         if (!sock || !isConnected) {
             console.error('❌ Ошибка: WhatsApp клиент еще не готов!');
@@ -138,14 +137,16 @@ io.on('connection', (socket) => {
                 cleanPhone = '7' + cleanPhone;
             }
 
+            console.log(`🔍 Проверка существования номера ${cleanPhone} в WhatsApp...`);
             const [result] = await sock.onWhatsApp(cleanPhone);
             
             if (!result || !result.exists) {
-                console.error(`[ОШИБКА] Номер ${cleanPhone} не зарегистрирован в WhatsApp!`);
+                console.error(`❌ [ОШИБКА] Номер ${cleanPhone} НЕ зарегистрирован в WhatsApp!`);
                 return;
             }
 
             const targetJid = result.jid;
+            console.log(`🎯 Точный WhatsApp JID получателя: ${targetJid}`);
 
             if (data.type === 'image') {
                 const base64Data = data.text.replace(/^data:image\/\w+;base64,/, '');
