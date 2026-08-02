@@ -1,311 +1,485 @@
-<script>
-    const socket = io();
-    let activeChatPhone = null;
-    let chatsMap = new Map();
-    let savedContacts = JSON.parse(localStorage.getItem('saved_contacts') || '[]');
-    let myProfile = { name: "User", status: "В сети WhatsDoggy" };
-    let mediaRecorder = null;
-    let audioChunks = [];
-    let isRecording = false;
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WhatsDoggy</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        /* Стили приложения */
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: sans-serif; }
+        body { background-color: #111b21; color: #e9edef; height: 100vh; display: flex; justify-content: center; align-items: center; }
+        
+        #qr-screen { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; width: 100%; text-align: center; }
+        #qr-image { width: 250px; height: 250px; margin-top: 20px; border-radius: 8px; }
+        
+        #app-screen { display: none; width: 100%; height: 100vh; flex-direction: column; position: relative; background: #111b21; }
+        
+        /* Шапка приложения */
+        .app-header { background: #202c33; padding: 10px 16px; display: flex; justify-content: space-between; align-items: center; color: #aebac1; }
+        .tab-content { flex: 1; overflow-y: auto; display: none; }
+        .tab-content.active { display: block; }
 
-    socket.on('connect', () => {
-        console.log('✅ Успешное соединение с сокетом!');
-    });
+        /* Навигация снизу */
+        .bottom-nav { display: flex; background: #202c33; border-top: 1px solid #2a3942; position: absolute; bottom: 0; width: 100%; }
+        .nav-item { flex: 1; padding: 12px; text-align: center; color: #aebac1; cursor: pointer; font-size: 14px; }
+        .nav-item.active { color: #00a884; font-weight: bold; }
 
-    // Функция СТРОГОЙ очистки: возвращает ТОЛЬКО ЦИФРЫ
-    function cleanPhoneNumber(rawPhone) {
-        if (!rawPhone) return '';
-        let cleaned = String(rawPhone).split('@')[0].split(':')[0].replace(/\D/g, '');
-        if (cleaned.startsWith('8') && cleaned.length === 11) {
-            cleaned = '7' + cleaned.slice(1);
-        } else if (cleaned.length === 10) {
-            cleaned = '7' + cleaned;
+        /* Списки */
+        .chat-item, .setting-item { display: flex; align-items: center; padding: 12px 16px; border-bottom: 1px solid #222d34; cursor: pointer; }
+        .avatar { width: 45px; height: 45px; border-radius: 50%; background: #6b7c85; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: bold; margin-right: 15px; }
+        .chat-info { flex: 1; }
+        .chat-header { display: flex; justify-content: space-between; margin-bottom: 4px; }
+        .chat-name { color: #e9edef; font-weight: 500; }
+        .chat-time { color: #8696a0; font-size: 12px; }
+        .chat-last-msg { color: #8696a0; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+        /* Окно чата */
+        #chat-window { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: #0b141a; display: none; flex-direction: column; z-index: 10; }
+        .chat-window-header { background: #202c33; padding: 10px 16px; display: flex; align-items: center; justify-content: space-between; color: #e9edef; }
+        .chat-messages { flex: 1; padding: 16px; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
+        
+        /* Сообщения */
+        .msg-bubble { max-width: 75%; padding: 8px 12px; border-radius: 8px; font-size: 14px; line-height: 1.4; position: relative; word-wrap: break-word; }
+        .msg-incoming { background: #202c33; align-self: flex-start; color: #e9edef; }
+        .msg-outgoing { background: #005c4b; align-self: flex-end; color: #e9edef; }
+        .msg-time { font-size: 10px; color: #8696a0; float: right; margin-left: 10px; margin-top: 4px; }
+        .msg-bubble img { max-width: 100%; border-radius: 6px; display: block; margin-bottom: 4px; }
+
+        /* Поле ввода */
+        .chat-input-bar { background: #202c33; padding: 10px; display: flex; align-items: center; gap: 8px; }
+        .chat-input-bar input[type="text"] { flex: 1; background: #2a3942; border: none; padding: 10px; border-radius: 8px; color: #e9edef; outline: none; }
+        .btn-action { background: none; border: none; color: #8696a0; font-size: 20px; cursor: pointer; padding: 4px 8px; }
+
+        /* Кнопки звонков в шапке */
+        .chat-actions { display: flex; gap: 12px; align-items: center; }
+        .icon-btn { background: none; border: none; font-size: 18px; cursor: pointer; color: #aebac1; padding: 4px; border-radius: 4px; }
+        .icon-btn:hover { background: #2a3942; }
+
+        /* Индикатор записи */
+        .recording-indicator { color: #f44336 !important; animation: pulse 1s infinite; }
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.4; } 100% { opacity: 1; } }
+
+        /* FAB кнопка */
+        .fab { position: absolute; bottom: 60px; right: 20px; width: 56px; height: 56px; border-radius: 50%; background: #00a884; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 24px; cursor: pointer; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
+    </style>
+</head>
+<body>
+
+    <!-- ЭКРАН С QR-КОДОМ -->
+    <div id="qr-screen">
+        <h2>Сканируйте QR-код в WhatsApp</h2>
+        <div id="qr-loader" style="margin-top:20px;">Загрузка QR-кода...</div>
+        <img id="qr-image" src="" alt="QR Code" style="display:none;">
+    </div>
+
+    <!-- ОСНОВНОЙ ЭКРАН -->
+    <div id="app-screen">
+        <div class="app-header">
+            <h3>WhatsDoggy</h3>
+            <span onclick="openProfile()" style="cursor:pointer;">👤 Профиль</span>
+        </div>
+
+        <!-- Вкладка Входные чаты -->
+        <div id="tab-chats" class="tab-content active">
+            <div id="chats-list-container"></div>
+        </div>
+
+        <!-- Вкладка Контакты -->
+        <div id="tab-contacts" class="tab-content">
+            <div id="contacts-list-container"></div>
+        </div>
+
+        <!-- Навигационное меню снизу -->
+        <div class="bottom-nav">
+            <div class="nav-item active" onclick="switchTab('chats', this)">Чаты</div>
+            <div class="nav-item" onclick="switchTab('contacts', this)">Контакты</div>
+        </div>
+
+        <!-- FAB (Добавить контакт) -->
+        <div class="fab" onclick="handleFabClick()">➕</div>
+
+        <!-- ОКНО ОТКРЫТОГО ЧАТА -->
+        <div id="chat-window">
+            <div class="chat-window-header">
+                <div style="display:flex; align-items:center; gap:10px;">
+                    <span onclick="closeChat()" style="cursor:pointer; font-size:20px;">⬅️</span>
+                    <div id="active-chat-avatar" class="avatar" style="width:35px; height:35px; font-size:14px; margin:0;"></div>
+                    <span id="active-chat-name" style="font-weight:bold;"></span>
+                </div>
+                <!-- КНОПКИ ЗВОНКОВ В ШАПКЕ ЧАТА -->
+                <div class="chat-actions">
+                    <button class="icon-btn" onclick="sendCallLink('audio')" title="Аудиозвонок">📞</button>
+                    <button class="icon-btn" onclick="sendCallLink('video')" title="Видеозвонок">📹</button>
+                </div>
+            </div>
+
+            <div id="chat-messages-container" class="chat-messages"></div>
+
+            <div class="chat-input-bar">
+                <label class="btn-action">
+                    📷 <input type="file" accept="image/*" style="display:none;" onchange="handleImageUpload(event)">
+                </label>
+                <input type="text" id="chat-input" placeholder="Введите сообщение..." onkeypress="if(event.key==='Enter') sendMessage()">
+                <button class="btn-action" id="mic-send-btn" onclick="handleMicClick()">🎤</button>
+                <button class="btn-action" onclick="sendMessage()">🚀</button>
+            </div>
+        </div>
+
+        <!-- МОДАЛКА ПРОФИЛЯ -->
+        <div id="profile-screen" style="display:none; position:absolute; top:0; left:0; width:100%; height:100%; background:#111b21; flex-direction:column; padding:20px; z-index:20;">
+            <h2>Настройки профиля</h2>
+            <br>
+            <label>Имя:</label>
+            <input type="text" id="profile-name-input" value="User" style="padding:8px; margin-bottom:15px; background:#2a3942; color:#fff; border:none; border-radius:4px;">
+            <label>Статус:</label>
+            <input type="text" id="profile-status-input" value="В сети WhatsDoggy" style="padding:8px; margin-bottom:15px; background:#2a3942; color:#fff; border:none; border-radius:4px;">
+            <button onclick="closeProfile()" style="padding:10px; background:#00a884; color:#fff; border:none; border-radius:4px; cursor:pointer;">Сохранить</button>
+        </div>
+    </div>
+
+    <!-- ЛОГИКА СОКЕТОВ И ИНТЕРФЕЙСА -->
+    <script>
+        const socket = io();
+        let activeChatPhone = null;
+        let chatsMap = new Map();
+        let savedContacts = JSON.parse(localStorage.getItem('saved_contacts') || '[]');
+        let myProfile = { name: "User", status: "В сети WhatsDoggy" };
+        let mediaRecorder = null;
+        let audioChunks = [];
+        let isRecording = false;
+
+        socket.on('connect', () => {
+            console.log('✅ Успешное соединение с веб-сокетом!');
+        });
+
+        socket.on('disconnect', () => {
+            console.warn('⚠️ Сокет отключился от сервера');
+        });
+
+        // СТРОГАЯ ОЧИСТКА: Возвращает ТОЛЬКО ЧИСТЫЕ ЦИФРЫ (без @s.whatsapp.net)
+        function cleanPhoneNumber(rawPhone) {
+            if (!rawPhone) return '';
+            let cleaned = String(rawPhone).split('@')[0].split(':')[0].replace(/\D/g, '');
+            if (cleaned.startsWith('8') && cleaned.length === 11) {
+                cleaned = '7' + cleaned.slice(1);
+            } else if (cleaned.length === 10) {
+                cleaned = '7' + cleaned;
+            }
+            return cleaned;
         }
-        return cleaned; // Только цифры! Никаких @s.whatsapp.net
-    }
 
-    socket.on('qr', (data) => {
-        const qrImg = document.getElementById('qr-image');
-        const loader = document.getElementById('qr-loader');
-        if (data.qr) {
-            qrImg.src = data.qr;
-            qrImg.style.display = 'block';
-            loader.style.display = 'none';
+        socket.on('qr', (data) => {
+            const qrImg = document.getElementById('qr-image');
+            const loader = document.getElementById('qr-loader');
+            if (data.qr) {
+                qrImg.src = data.qr;
+                qrImg.style.display = 'block';
+                loader.style.display = 'none';
+            }
+        });
+
+        socket.on('ready', () => {
+            document.getElementById('qr-screen').style.display = 'none';
+            document.getElementById('app-screen').style.display = 'flex';
+            saveAndRenderContacts();
+        });
+
+        socket.on('message', (msg) => {
+            console.log('📩 Получено сообщение:', msg);
+
+            // Очищаем номер от служебных знаков и @s.whatsapp.net
+            let phone = cleanPhoneNumber(msg.from);
+            if (!phone) return;
+
+            if (!chatsMap.has(phone)) {
+                let contact = savedContacts.find(c => c.phone === phone);
+                chatsMap.set(phone, {
+                    name: contact ? contact.name : phone,
+                    phone: phone,
+                    messages: []
+                });
+            }
+
+            let chat = chatsMap.get(phone);
+            chat.messages.push({
+                text: msg.text,
+                time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                fromMe: false,
+                type: msg.type || 'text'
+            });
+
+            renderChats();
+            if (activeChatPhone === phone) {
+                renderMessages(phone);
+            }
+        });
+
+        function switchTab(tabId, el) {
+            document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+            document.getElementById('tab-' + tabId).classList.add('active');
+            if (el) el.classList.add('active');
         }
-    });
 
-    socket.on('ready', () => {
-        document.getElementById('qr-screen').style.display = 'none';
-        document.getElementById('app-screen').style.display = 'flex';
-        saveAndRenderContacts();
-    });
+        function handleFabClick() {
+            let phoneInput = prompt('Введите номер телефона (+7...):');
+            if (!phoneInput) return;
+            
+            let cleanPhone = cleanPhoneNumber(phoneInput);
+            if (!cleanPhone) {
+                alert('Некорректный номер!');
+                return;
+            }
 
-    socket.on('message', (msg) => {
-        console.log('📩 Получено новое сообщение:', msg);
+            let nameInput = prompt('Введите имя контакта:', 'Контакт');
+            if (!nameInput) nameInput = cleanPhone;
 
-        // Гарантируем чистые цифры
-        let phone = cleanPhoneNumber(msg.from);
-        if (!phone) return;
+            if (!savedContacts.some(c => c.phone === cleanPhone)) {
+                savedContacts.push({ name: nameInput, phone: cleanPhone });
+                saveAndRenderContacts();
+            }
 
-        if (!chatsMap.has(phone)) {
-            let contact = savedContacts.find(c => c.phone === phone);
-            chatsMap.set(phone, {
-                name: contact ? contact.name : phone,
-                phone: phone,
-                messages: []
+            openChat(cleanPhone);
+        }
+
+        function saveAndRenderContacts() {
+            localStorage.setItem('saved_contacts', JSON.stringify(savedContacts));
+            renderContacts();
+        }
+
+        function renderChats() {
+            const container = document.getElementById('chats-list-container');
+            container.innerHTML = '';
+            chatsMap.forEach((chat, phone) => {
+                let lastMsg = chat.messages[chat.messages.length - 1];
+                let lastText = lastMsg ? (lastMsg.type === 'image' ? '📷 Изображение' : lastMsg.type === 'audio' ? '🎵 Голосовое сообщение' : lastMsg.text) : 'Нет сообщений';
+                
+                let div = document.createElement('div');
+                div.className = 'chat-item';
+                div.onclick = () => openChat(phone);
+                div.innerHTML = `
+                    <div class="avatar">${chat.name.charAt(0).toUpperCase()}</div>
+                    <div class="chat-info">
+                        <div class="chat-header">
+                            <span class="chat-name">${chat.name}</span>
+                            <span class="chat-time">${lastMsg ? lastMsg.time : ''}</span>
+                        </div>
+                        <div class="chat-last-msg">${lastMsg && lastMsg.fromMe ? '<span class="ticks">✓✓</span>' : ''} ${lastText}</div>
+                    </div>
+                `;
+                container.appendChild(div);
             });
         }
 
-        let chat = chatsMap.get(phone);
-        chat.messages.push({
-            text: msg.text,
-            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            fromMe: false,
-            type: msg.type || 'text'
-        });
+        function renderContacts() {
+            const container = document.getElementById('contacts-list-container');
+            container.innerHTML = '';
+            savedContacts.forEach(contact => {
+                let div = document.createElement('div');
+                div.className = 'setting-item';
+                div.onclick = () => openChat(contact.phone);
+                div.innerHTML = `
+                    <div class="avatar" style="width:40px; height:40px; font-size:16px;">${contact.name.charAt(0).toUpperCase()}</div>
+                    <div>
+                        <div class="setting-title">${contact.name}</div>
+                        <div class="setting-sub">${contact.phone}</div>
+                    </div>
+                `;
+                container.appendChild(div);
+            });
+        }
 
-        renderChats();
-        if (activeChatPhone === phone) {
+        function openChat(phone) {
+            phone = cleanPhoneNumber(phone);
+            activeChatPhone = phone;
+            let chat = chatsMap.get(phone);
+            if (!chat) {
+                let contact = savedContacts.find(c => c.phone === phone);
+                chat = {
+                    name: contact ? contact.name : phone,
+                    phone: phone,
+                    messages: []
+                };
+                chatsMap.set(phone, chat);
+            }
+            document.getElementById('active-chat-name').innerText = chat.name;
+            document.getElementById('active-chat-avatar').innerText = chat.name.charAt(0).toUpperCase();
+            document.getElementById('chat-window').style.display = 'flex';
             renderMessages(phone);
         }
-    });
 
-    function switchTab(tabId, el) {
-        document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
-        document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-        document.getElementById('tab-' + tabId).classList.add('active');
-        if (el) el.classList.add('active');
-    }
-
-    function handleFabClick() {
-        let phoneInput = prompt('Введите номер телефона (+7...):');
-        if (!phoneInput) return;
-        
-        let cleanPhone = cleanPhoneNumber(phoneInput);
-        if (!cleanPhone) {
-            alert('Некорректный номер!');
-            return;
+        function closeChat() {
+            document.getElementById('chat-window').style.display = 'none';
+            activeChatPhone = null;
+            renderChats();
         }
 
-        let nameInput = prompt('Введите имя контакта:', 'Контакт');
-        if (!nameInput) nameInput = cleanPhone;
-
-        if (!savedContacts.some(c => c.phone === cleanPhone)) {
-            savedContacts.push({ name: nameInput, phone: cleanPhone });
-            saveAndRenderContacts();
+        function openProfile() { document.getElementById('profile-screen').style.display = 'flex'; }
+        function closeProfile() {
+            document.getElementById('profile-screen').style.display = 'none';
+            myProfile.name = document.getElementById('profile-name-input').value;
+            myProfile.status = document.getElementById('profile-status-input').value;
         }
 
-        openChat(cleanPhone);
-    }
+        function renderMessages(phone) {
+            const container = document.getElementById('chat-messages-container');
+            container.innerHTML = '';
+            let chat = chatsMap.get(phone);
+            if (!chat) return;
 
-    function saveAndRenderContacts() {
-        localStorage.setItem('saved_contacts', JSON.stringify(savedContacts));
-        renderContacts();
-    }
+            chat.messages.forEach(msg => {
+                let bubble = document.createElement('div');
+                bubble.className = `msg-bubble ${msg.fromMe ? 'msg-outgoing' : 'msg-incoming'}`;
+                
+                let contentHtml = '';
+                if (msg.type === 'image') {
+                    contentHtml = `<img src="${msg.text}" alt="image">`;
+                } else if (msg.type === 'audio') {
+                    contentHtml = `<audio controls src="${msg.text}"></audio>`;
+                } else {
+                    contentHtml = `<span>${msg.text}</span>`;
+                }
 
-    function renderChats() {
-        const container = document.getElementById('chats-list-container');
-        container.innerHTML = '';
-        chatsMap.forEach((chat, phone) => {
-            let lastMsg = chat.messages[chat.messages.length - 1];
-            let lastText = lastMsg ? (lastMsg.type === 'image' ? '📷 Изображение' : lastMsg.type === 'audio' ? '🎵 Голосовое сообщение' : lastMsg.text) : 'Нет сообщений';
-            
-            let div = document.createElement('div');
-            div.className = 'chat-item';
-            div.onclick = () => openChat(phone);
-            div.innerHTML = `
-                <div class="avatar">${chat.name.charAt(0).toUpperCase()}</div>
-                <div class="chat-info">
-                    <div class="chat-header">
-                        <span class="chat-name">${chat.name}</span>
-                        <span class="chat-time">${lastMsg ? lastMsg.time : ''}</span>
-                    </div>
-                    <div class="chat-last-msg">${lastMsg && lastMsg.fromMe ? '<span class="ticks">✓✓</span>' : ''} ${lastText}</div>
-                </div>
-            `;
-            container.appendChild(div);
-        });
-    }
-
-    function renderContacts() {
-        const container = document.getElementById('contacts-list-container');
-        container.innerHTML = '';
-        savedContacts.forEach(contact => {
-            let div = document.createElement('div');
-            div.className = 'setting-item';
-            div.onclick = () => openChat(contact.phone);
-            div.innerHTML = `
-                <div class="avatar" style="width:40px; height:40px; font-size:16px;">${contact.name.charAt(0).toUpperCase()}</div>
-                <div>
-                    <div class="setting-title">${contact.name}</div>
-                    <div class="setting-sub">${contact.phone}</div>
-                </div>
-            `;
-            container.appendChild(div);
-        });
-    }
-
-    function openChat(phone) {
-        phone = cleanPhoneNumber(phone);
-        activeChatPhone = phone;
-        let chat = chatsMap.get(phone);
-        if (!chat) {
-            let contact = savedContacts.find(c => c.phone === phone);
-            chat = {
-                name: contact ? contact.name : phone,
-                phone: phone,
-                messages: []
-            };
-            chatsMap.set(phone, chat);
+                bubble.innerHTML = `
+                    ${contentHtml}
+                    <span class="msg-time">${msg.time} ${msg.fromMe ? '<span class="ticks">✓✓</span>' : ''}</span>
+                `;
+                container.appendChild(bubble);
+            });
+            container.scrollTop = container.scrollHeight;
         }
-        document.getElementById('active-chat-name').innerText = chat.name;
-        document.getElementById('active-chat-avatar').innerText = chat.name.charAt(0).toUpperCase();
-        document.getElementById('chat-window').style.display = 'flex';
-        renderMessages(phone);
-    }
 
-    function closeChat() {
-        document.getElementById('chat-window').style.display = 'none';
-        activeChatPhone = null;
-        renderChats();
-    }
+        function sendMessage() {
+            const input = document.getElementById('chat-input');
+            const text = input.value.trim();
+            if (!text || !activeChatPhone) return;
 
-    function openProfile() { document.getElementById('profile-screen').style.display = 'flex'; }
-    function closeProfile() {
-        document.getElementById('profile-screen').style.display = 'none';
-        myProfile.name = document.getElementById('profile-name-input').value;
-        myProfile.status = document.getElementById('profile-status-input').value;
-        document.getElementById('settings-my-name').innerText = myProfile.name;
-        document.getElementById('settings-my-status').innerText = myProfile.status;
-    }
+            const cleanTo = cleanPhoneNumber(activeChatPhone);
 
-    function renderMessages(phone) {
-        const container = document.getElementById('chat-messages-container');
-        container.innerHTML = '';
-        let chat = chatsMap.get(phone);
-        if (!chat) return;
+            console.log('🚀 Отправка сообщения сокету:', { to: cleanTo, text: text });
+            socket.emit('send_message', { to: cleanTo, text: text, type: 'text' });
 
-        chat.messages.forEach(msg => {
-            let bubble = document.createElement('div');
-            bubble.className = `msg-bubble ${msg.fromMe ? 'msg-outgoing' : 'msg-incoming'}`;
-            
-            let contentHtml = '';
-            if (msg.type === 'image') {
-                contentHtml = `<img src="${msg.text}" alt="image">`;
-            } else if (msg.type === 'audio') {
-                contentHtml = `<audio controls src="${msg.text}"></audio>`;
-            } else {
-                contentHtml = `<span>${msg.text}</span>`;
+            const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            const chat = chatsMap.get(cleanTo);
+            if (chat) {
+                chat.messages.push({ text: text, time: timeStr, fromMe: true, type: 'text' });
             }
 
-            bubble.innerHTML = `
-                ${contentHtml}
-                <span class="msg-time">${msg.time} ${msg.fromMe ? '<span class="ticks">✓✓</span>' : ''}</span>
-            `;
-            container.appendChild(bubble);
-        });
-        container.scrollTop = container.scrollHeight;
-    }
-
-    function sendMessage() {
-        const input = document.getElementById('chat-input');
-        const text = input.value.trim();
-        if (!text || !activeChatPhone) return;
-
-        // Отправляем СТРОГО чистые цифры на сервер
-        const cleanTo = cleanPhoneNumber(activeChatPhone);
-
-        console.log('🚀 Отправка сообщения сокету:', { to: cleanTo, text: text });
-        socket.emit('send_message', { to: cleanTo, text: text, type: 'text' });
-
-        const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-        const chat = chatsMap.get(cleanTo);
-        if (chat) {
-            chat.messages.push({ text: text, time: timeStr, fromMe: true, type: 'text' });
+            input.value = '';
+            renderMessages(cleanTo);
+            renderChats();
         }
 
-        input.value = '';
-        renderMessages(cleanTo);
-        renderChats();
-    }
+        // ОТПРАВКА ССЫЛОК НА ЗВОНКИ ПО КНОПКАМ 📞 И 📹
+        function sendCallLink(type) {
+            if (!activeChatPhone) {
+                alert('Сначала выберите чат!');
+                return;
+            }
 
-    function handleImageUpload(event) {
-        if (!activeChatPhone) {
-            alert('Сначала выберите чат!');
-            event.target.value = '';
-            return;
-        }
-
-        const file = event.target.files[0];
-        if (!file) return;
-
-        const reader = new FileReader();
-        reader.onload = function(e) {
-            const base64Image = e.target.result;
             const cleanTo = cleanPhoneNumber(activeChatPhone);
-            socket.emit('send_message', { to: cleanTo, text: base64Image, type: 'image' });
-            
+            const domain = window.location.origin;
+            const callUrl = `${domain}/call/${cleanTo}?type=${type}`;
+
+            let callMessage = '';
+            if (type === 'audio') {
+                callMessage = `📞 Вам звонят в WhatsDoggy (Аудиовызов)!\nПерейдите по ссылке, чтобы ответить:\n${callUrl}`;
+            } else {
+                callMessage = `📹 Вам звонят в WhatsDoggy (Видеовызов)!\nПерейдите по ссылке, чтобы ответить:\n${callUrl}`;
+            }
+
+            socket.emit('send_message', { to: cleanTo, text: callMessage, type: 'text' });
+
             const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
             let chat = chatsMap.get(cleanTo);
             if (chat) {
-                chat.messages.push({ text: base64Image, time: timeStr, fromMe: true, type: 'image' });
+                chat.messages.push({ text: callMessage, time: timeStr, fromMe: true, type: 'text' });
             }
+
             renderMessages(cleanTo);
             renderChats();
-            event.target.value = '';
-        };
-        reader.readAsDataURL(file);
-    }
-
-    async function handleMicClick() {
-        if (!activeChatPhone) {
-            alert('Сначала выберите чат!');
-            return;
         }
 
-        const micBtn = document.getElementById('mic-send-btn');
-        if (!isRecording) {
-            try {
-                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-                mediaRecorder = new MediaRecorder(stream);
-                audioChunks = [];
-                
-                mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
-                
-                mediaRecorder.onstop = () => {
-                    const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 
-                                     (MediaRecorder.isTypeSupported('audio/mp3') ? 'audio/mp3' : 'audio/ogg');
-                    
-                    const blob = new Blob(audioChunks, { type: mimeType });
-                    const reader = new FileReader();
-                    reader.onload = function(e) {
-                        const base64Audio = e.target.result;
-                        const cleanTo = cleanPhoneNumber(activeChatPhone);
-                        
-                        socket.emit('send_message', { to: cleanTo, text: base64Audio, type: 'audio' });
-                        
-                        const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                        let chat = chatsMap.get(cleanTo);
-                        if (chat) {
-                            chat.messages.push({ text: base64Audio, time: timeStr, fromMe: true, type: 'audio' });
-                        }
-                        renderMessages(cleanTo);
-                        renderChats();
-                    };
-                    reader.readAsDataURL(blob);
-                    stream.getTracks().forEach(track => track.stop());
-                };
-
-                mediaRecorder.start();
-                isRecording = true;
-                micBtn.classList.add('recording-indicator');
-            } catch (e) {
-                alert('Ошибка доступа к микрофону');
+        function handleImageUpload(event) {
+            if (!activeChatPhone) {
+                alert('Сначала выберите чат!');
+                event.target.value = '';
+                return;
             }
-        } else {
-            mediaRecorder.stop();
-            isRecording = false;
-            micBtn.classList.remove('recording-indicator');
+
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const base64Image = e.target.result;
+                const cleanTo = cleanPhoneNumber(activeChatPhone);
+                socket.emit('send_message', { to: cleanTo, text: base64Image, type: 'image' });
+                
+                const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                let chat = chatsMap.get(cleanTo);
+                if (chat) {
+                    chat.messages.push({ text: base64Image, time: timeStr, fromMe: true, type: 'image' });
+                }
+                renderMessages(cleanTo);
+                renderChats();
+                event.target.value = '';
+            };
+            reader.readAsDataURL(file);
         }
-    }
-</script>
+
+        async function handleMicClick() {
+            if (!activeChatPhone) {
+                alert('Сначала выберите чат!');
+                return;
+            }
+
+            const micBtn = document.getElementById('mic-send-btn');
+            if (!isRecording) {
+                try {
+                    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                    mediaRecorder = new MediaRecorder(stream);
+                    audioChunks = [];
+                    
+                    mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+                    
+                    mediaRecorder.onstop = () => {
+                        const mimeType = MediaRecorder.isTypeSupported('audio/webm') ? 'audio/webm' : 
+                                         (MediaRecorder.isTypeSupported('audio/mp3') ? 'audio/mp3' : 'audio/ogg');
+                        
+                        const blob = new Blob(audioChunks, { type: mimeType });
+                        const reader = new FileReader();
+                        reader.onload = function(e) {
+                            const base64Audio = e.target.result;
+                            const cleanTo = cleanPhoneNumber(activeChatPhone);
+                            
+                            socket.emit('send_message', { to: cleanTo, text: base64Audio, type: 'audio' });
+                            
+                            const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                            let chat = chatsMap.get(cleanTo);
+                            if (chat) {
+                                chat.messages.push({ text: base64Audio, time: timeStr, fromMe: true, type: 'audio' });
+                            }
+                            renderMessages(cleanTo);
+                            renderChats();
+                        };
+                        reader.readAsDataURL(blob);
+                        stream.getTracks().forEach(track => track.stop());
+                    };
+
+                    mediaRecorder.start();
+                    isRecording = true;
+                    micBtn.classList.add('recording-indicator');
+                } catch (e) {
+                    alert('Ошибка доступа к микрофону');
+                }
+            } else {
+                mediaRecorder.stop();
+                isRecording = false;
+                micBtn.classList.remove('recording-indicator');
+            }
+        }
+    </script>
+</body>
+</html>
