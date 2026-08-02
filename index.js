@@ -47,7 +47,7 @@ async function connectToWhatsApp() {
         }
     });
 
-    // Прием входящих сообщений
+    // Прием входящих сообщений из WhatsApp
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
         if (type !== 'notify') return;
 
@@ -71,34 +71,42 @@ async function connectToWhatsApp() {
     });
 }
 
+// Прием отправки из браузера
 io.on('connection', (socket) => {
-    console.log('🔌 Браузер подключился к сокету');
+    console.log('🔌 Браузер подключен к сокету');
 
     socket.on('send_message', async (data) => {
         try {
-            if (!data.to || !sock) return;
+            console.log('📩 Получены данные от браузера:', data);
 
-            let cleanNumber = String(data.to).replace(/\D/g, '');
+            // Поддержка разных названий полей (to или phone или number)
+            const rawNumber = data.to || data.phone || data.number;
+            const messageText = data.text || data.message;
+
+            if (!rawNumber || !sock) {
+                console.error('❌ Ошибка: не указан номер или сокет WA не готов!');
+                return;
+            }
+
+            // 1. Очищаем номер до чистых цифр
+            let cleanNumber = String(rawNumber).replace(/\D/g, '');
+
+            // 2. Если номер начинается с 8 и длина 11 цифр — меняем на 7
             if (cleanNumber.startsWith('8') && cleanNumber.length === 11) {
                 cleanNumber = '7' + cleanNumber.slice(1);
             }
 
+            // 3. Формируем правильный JID для WhatsApp
             const recipientJid = `${cleanNumber}@s.whatsapp.net`;
 
-            console.log(`📤 Отправка сообщения на JID: ${recipientJid}`);
+            console.log(`🚀 Отправляем в WhatsApp на JID: ${recipientJid} | Текст: "${messageText}"`);
 
-            if (data.type === 'text') {
-                await sock.sendMessage(recipientJid, { text: data.text });
-            } else if (data.type === 'image') {
-                const buffer = Buffer.from(data.text.split(',')[1], 'base64');
-                await sock.sendMessage(recipientJid, { image: buffer });
-            } else if (data.type === 'audio') {
-                const buffer = Buffer.from(data.text.split(',')[1], 'base64');
-                await sock.sendMessage(recipientJid, { audio: buffer, ptt: true });
-            }
+            // 4. Реальная отправка через Baileys
+            const sentMsg = await sock.sendMessage(recipientJid, { text: messageText });
+            console.log('✅ Сообщение успешно отправлено в WhatsApp!', sentMsg?.key);
 
         } catch (error) {
-            console.error('❌ Ошибка при отправке сообщения:', error);
+            console.error('❌ Ошибка при реальной отправке в WhatsApp:', error);
         }
     });
 });
@@ -106,4 +114,4 @@ io.on('connection', (socket) => {
 connectToWhatsApp();
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`🚀 Сервер запущен на порту ${PORT}`));
+server.listen(PORT, () => console.log(`🚀 Сервер WhatsDoggy запущен на порту ${PORT}`));
