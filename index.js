@@ -5,6 +5,7 @@ import makeWASocket, { useMultiFileAuthState, DisconnectReason } from '@whiskeys
 import qrcode from 'qrcode';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import fs from 'fs'; // Подключаем модуль работы с файлами
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -18,13 +19,22 @@ app.use(express.static(path.join(__dirname, 'public')));
 let sock = null;
 
 async function connectToWhatsApp() {
+    // 🧹 Принудительно очищаем битую сессию при запуске
+    if (fs.existsSync('auth_info_baileys')) {
+        try {
+            fs.rmSync('auth_info_baileys', { recursive: true, force: true });
+            console.log('🧹 Старая битая сессия успешно удалена!');
+        } catch (e) {
+            console.error('Ошибка при удалении сессии:', e);
+        }
+    }
+
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
 
     sock = makeWASocket({
         auth: state,
         printQRInTerminal: true,
-        // Оптимизация против таймаутов (ошибки 408) и зависаний на Render
-        syncFullHistory: false,           // Не качаем старую историю
+        syncFullHistory: false,           // Отключаем кач истории против ошибки 408
         markOnlineOnConnect: false,
         connectTimeoutMs: 60000,
         defaultQueryTimeoutMs: 60000,
@@ -42,7 +52,7 @@ async function connectToWhatsApp() {
                 const qrImageUrl = await qrcode.toDataURL(qr);
                 io.emit('qr', { qr: qrImageUrl });
             } catch (err) {
-                console.error('Ошибка генерации QR DataURL:', err);
+                console.error('Ошибка генерации QR:', err);
             }
         }
 
@@ -52,7 +62,7 @@ async function connectToWhatsApp() {
         } else if (connection === 'close') {
             const statusCode = (lastDisconnect?.error)?.output?.statusCode;
             const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
-            console.log(`⚠️ Соединение закрыто (код ${statusCode}). Переподключение: ${shouldReconnect}`);
+            console.log(`⚠️ Соединение закрыто (код ${statusCode}).`);
             
             if (sock) {
                 sock.ev.removeAllListeners();
@@ -64,7 +74,6 @@ async function connectToWhatsApp() {
         }
     });
 
-    // Прием входящих сообщений из WhatsApp
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
         if (type !== 'notify') return;
 
@@ -105,10 +114,7 @@ io.on('connection', (socket) => {
                 return;
             }
 
-            // 1. Очищаем номер от любых символов
             let cleanNumber = String(rawNumber).replace(/\D/g, '');
-
-            // 2. Исправляем казахстанский/российский формат с 8 на 7
             if (cleanNumber.startsWith('8') && cleanNumber.length === 11) {
                 cleanNumber = '7' + cleanNumber.slice(1);
             }
@@ -118,14 +124,11 @@ io.on('connection', (socket) => {
 
             let recipientJid = `${cleanNumber}@s.whatsapp.net`;
 
-            // 3. Запрашиваем точный JID и ключи E2EE
             try {
                 const results = await sock.onWhatsApp(searchPhone);
                 if (results && results.length > 0 && results[0].exists) {
                     recipientJid = results[0].jid;
                     console.log(`🎯 Найден валидный JID: ${recipientJid}`);
-                } else {
-                    console.warn(`⚠️ onWhatsApp не подтвердил номер, используем запасной JID: ${recipientJid}`);
                 }
             } catch (wErr) {
                 console.error('⚠️ Ошибка при запросе onWhatsApp:', wErr?.message);
@@ -133,7 +136,6 @@ io.on('connection', (socket) => {
 
             console.log(`🚀 Отправка в WhatsApp на JID: ${recipientJid} | Текст: "${messageText}"`);
 
-            // 4. Отправляем сообщение
             const sentMsg = await sock.sendMessage(recipientJid, { text: messageText });
             console.log('✅ Сообщение успешно отправлено!', sentMsg?.key);
 
