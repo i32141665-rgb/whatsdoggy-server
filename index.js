@@ -31,6 +31,7 @@ async function connectToWhatsApp() {
         const { connection, lastDisconnect, qr } = update;
 
         if (qr) {
+            console.log('⚡ Новый QR-код сгенерирован!');
             const qrImageUrl = await qrcode.toDataURL(qr);
             io.emit('qr', { qr: qrImageUrl });
         }
@@ -79,7 +80,6 @@ io.on('connection', (socket) => {
         try {
             console.log('📩 Получены данные от браузера:', data);
 
-            // Поддержка разных названий полей (to или phone или number)
             const rawNumber = data.to || data.phone || data.number;
             const messageText = data.text || data.message;
 
@@ -96,12 +96,21 @@ io.on('connection', (socket) => {
                 cleanNumber = '7' + cleanNumber.slice(1);
             }
 
-            // 3. Формируем правильный JID для WhatsApp
-            const recipientJid = `${cleanNumber}@s.whatsapp.net`;
+            // 3. Запрашиваем у WhatsApp валидный JID и инициализируем E2EE сессию
+            const results = await sock.onWhatsApp(cleanNumber);
+            const userAccount = results && results[0];
 
-            console.log(`🚀 Отправляем в WhatsApp на JID: ${recipientJid} | Текст: "${messageText}"`);
+            if (!userAccount || !userAccount.exists) {
+                console.error(`❌ Номер ${cleanNumber} не найден в WhatsApp!`);
+                socket.emit('error_msg', { message: 'Номер не зарегистрирован в WhatsApp' });
+                return;
+            }
 
-            // 4. Реальная отправка через Baileys
+            const recipientJid = userAccount.jid; // Это правильный JID вида 77767737216@s.whatsapp.net или с идентификатором устройства
+
+            console.log(`🚀 Отправляем в WhatsApp на проверяемый JID: ${recipientJid} | Текст: "${messageText}"`);
+
+            // 4. Отправка сообщения
             const sentMsg = await sock.sendMessage(recipientJid, { text: messageText });
             console.log('✅ Сообщение успешно отправлено в WhatsApp!', sentMsg?.key);
 
