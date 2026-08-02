@@ -9,7 +9,7 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
-app.use(express.static('public')); // Убедись, что index.html лежит в папке public (или настрой свой статический путь)
+app.use(express.static('public')); // Папка, где лежит index.html
 
 let sock;
 
@@ -43,7 +43,7 @@ async function connectToWhatsApp() {
         }
     });
 
-    // Входящие сообщения
+    // Прием входящих сообщений из WhatsApp
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
         if (type !== 'notify') return;
 
@@ -52,17 +52,17 @@ async function connectToWhatsApp() {
 
             const fromJid = msg.key.remoteJid;
             
-            // Пропускаем группы, статусы и LID
+            // Фильтруем группы, статусы и LID
             if (!fromJid || fromJid.includes('@g.us') || fromJid.includes('@broadcast') || fromJid.includes('@lid')) {
                 continue;
             }
 
-            // Извлекаем только чистый номер (до @)
+            // Вырезаем СТРОГО чистые цифры для передачи в браузер
             const cleanPhone = fromJid.split('@')[0].split(':')[0].replace(/\D/g, '');
             const text = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
 
             io.emit('message', {
-                from: cleanPhone, // Отправляем на фронтенд СТРОГО чистые цифры!
+                from: cleanPhone, // Отправляем клиенту ЧИСТЫЕ цифры без @s.whatsapp.net
                 text: text,
                 type: 'text'
             });
@@ -70,26 +70,26 @@ async function connectToWhatsApp() {
     });
 }
 
-// Работа с веб-сокетами
+// Прием команд от браузера через Socket.io
 io.on('connection', (socket) => {
-    console.log('🔌 Клиент подключился к Socket.io');
+    console.log('🔌 Браузер подключился к сокету');
 
     socket.on('send_message', async (data) => {
         try {
             if (!data.to || !sock) return;
 
-            // 1. СТРОГО очищаем номер от любых не-цифр
+            // 1. Очищаем пришедший номер от не-цифр
             let cleanNumber = String(data.to).replace(/\D/g, '');
             if (cleanNumber.startsWith('8') && cleanNumber.length === 11) {
                 cleanNumber = '7' + cleanNumber.slice(1);
             }
 
-            // 2. Сервер САМ прикрепляет @s.whatsapp.net
+            // 2. Сервер САМ прикрепляет @s.whatsapp.net для Baileys
             const recipientJid = `${cleanNumber}@s.whatsapp.net`;
 
             console.log(`📤 Отправка сообщения на JID: ${recipientJid}`);
 
-            // 3. Отправка в зависимоти от типа
+            // 3. Отправляем в зависимости от типа (текст / фото / аудио)
             if (data.type === 'text') {
                 await sock.sendMessage(recipientJid, { text: data.text });
             } else if (data.type === 'image') {
@@ -109,4 +109,4 @@ io.on('connection', (socket) => {
 connectToWhatsApp();
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`🚀 Сервер запущен на порту ${PORT}`));
+server.listen(PORT, () => console.log(`🚀 Сервер WhatsDoggy запущен на порту ${PORT}`));
