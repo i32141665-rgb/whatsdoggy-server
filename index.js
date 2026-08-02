@@ -1,15 +1,19 @@
-const express = require('express');
-const http = require('http');
-const { Server } = require('socket.io');
-const makeWASocket = require('@whiskeysockets/baileys').default;
-const { useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
-const qrcode = require('qrcode');
+import express from 'express';
+import http from 'http';
+import { Server } from 'socket.io';
+import makeWASocket, { useMultiFileAuthState, DisconnectReason } from '@whiskeysockets/baileys';
+import qrcode from 'qrcode';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server);
 
-app.use(express.static('public')); // Папка, где лежит index.html
+app.use(express.static(path.join(__dirname, 'public')));
 
 let sock;
 
@@ -43,7 +47,7 @@ async function connectToWhatsApp() {
         }
     });
 
-    // Прием входящих сообщений из WhatsApp
+    // Прием входящих сообщений
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
         if (type !== 'notify') return;
 
@@ -51,18 +55,15 @@ async function connectToWhatsApp() {
             if (!msg.message || msg.key.fromMe) continue;
 
             const fromJid = msg.key.remoteJid;
-            
-            // Фильтруем группы, статусы и LID
             if (!fromJid || fromJid.includes('@g.us') || fromJid.includes('@broadcast') || fromJid.includes('@lid')) {
                 continue;
             }
 
-            // Вырезаем СТРОГО чистые цифры для передачи в браузер
             const cleanPhone = fromJid.split('@')[0].split(':')[0].replace(/\D/g, '');
             const text = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
 
             io.emit('message', {
-                from: cleanPhone, // Отправляем клиенту ЧИСТЫЕ цифры без @s.whatsapp.net
+                from: cleanPhone,
                 text: text,
                 type: 'text'
             });
@@ -70,7 +71,6 @@ async function connectToWhatsApp() {
     });
 }
 
-// Прием команд от браузера через Socket.io
 io.on('connection', (socket) => {
     console.log('🔌 Браузер подключился к сокету');
 
@@ -78,18 +78,15 @@ io.on('connection', (socket) => {
         try {
             if (!data.to || !sock) return;
 
-            // 1. Очищаем пришедший номер от не-цифр
             let cleanNumber = String(data.to).replace(/\D/g, '');
             if (cleanNumber.startsWith('8') && cleanNumber.length === 11) {
                 cleanNumber = '7' + cleanNumber.slice(1);
             }
 
-            // 2. Сервер САМ прикрепляет @s.whatsapp.net для Baileys
             const recipientJid = `${cleanNumber}@s.whatsapp.net`;
 
             console.log(`📤 Отправка сообщения на JID: ${recipientJid}`);
 
-            // 3. Отправляем в зависимости от типа (текст / фото / аудио)
             if (data.type === 'text') {
                 await sock.sendMessage(recipientJid, { text: data.text });
             } else if (data.type === 'image') {
@@ -109,4 +106,4 @@ io.on('connection', (socket) => {
 connectToWhatsApp();
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`🚀 Сервер WhatsDoggy запущен на порту ${PORT}`));
+server.listen(PORT, () => console.log(`🚀 Сервер запущен на порту ${PORT}`));
