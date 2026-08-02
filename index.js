@@ -100,7 +100,7 @@ async function connectToWhatsApp() {
             console.error('Ошибка при обработке входящего сообщения:', err);
         }
     });
-} // <--- ВОТ ЗДЕСЬ НЕ ХВАТАЛО СКОБКИ
+}
 
 io.on('connection', (socket) => {
     if (currentQr) {
