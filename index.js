@@ -23,7 +23,9 @@ async function connectToWhatsApp() {
     sock = makeWASocket({
         auth: state,
         printQRInTerminal: true,
-        // Опции для защиты от таймаутов на Render
+        // Оптимизация против таймаутов (ошибки 408) и зависаний на Render
+        syncFullHistory: false,           // Не качаем старую историю
+        markOnlineOnConnect: false,
         connectTimeoutMs: 60000,
         defaultQueryTimeoutMs: 60000,
         keepAliveIntervalMs: 25000
@@ -52,13 +54,12 @@ async function connectToWhatsApp() {
             const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
             console.log(`⚠️ Соединение закрыто (код ${statusCode}). Переподключение: ${shouldReconnect}`);
             
-            // Очищаем слушатели старого сокета перед созданием нового
             if (sock) {
                 sock.ev.removeAllListeners();
             }
 
             if (shouldReconnect) {
-                setTimeout(connectToWhatsApp, 3000); // Небольшая задержка перед реконнектом
+                setTimeout(connectToWhatsApp, 3000);
             }
         }
     });
@@ -104,36 +105,35 @@ io.on('connection', (socket) => {
                 return;
             }
 
-            // 1. Очищаем номер до чистых цифр
+            // 1. Очищаем номер от любых символов
             let cleanNumber = String(rawNumber).replace(/\D/g, '');
 
-            // 2. Нормализуем номер (Казахстан / РФ)
+            // 2. Исправляем казахстанский/российский формат с 8 на 7
             if (cleanNumber.startsWith('8') && cleanNumber.length === 11) {
                 cleanNumber = '7' + cleanNumber.slice(1);
             }
 
-            // Форматируем с плюсом для корректной работы onWhatsApp
             const searchPhone = '+' + cleanNumber;
             console.log(`🔍 Проверяем номер в WhatsApp: ${searchPhone}`);
 
             let recipientJid = `${cleanNumber}@s.whatsapp.net`;
 
-            // 3. Запрашиваем официальный JID через onWhatsApp
+            // 3. Запрашиваем точный JID и ключи E2EE
             try {
                 const results = await sock.onWhatsApp(searchPhone);
                 if (results && results.length > 0 && results[0].exists) {
                     recipientJid = results[0].jid;
                     console.log(`🎯 Найден валидный JID: ${recipientJid}`);
                 } else {
-                    console.warn(`⚠️ onWhatsApp не подтвердил номер, пробуем отправку на ${recipientJid}`);
+                    console.warn(`⚠️ onWhatsApp не подтвердил номер, используем запасной JID: ${recipientJid}`);
                 }
             } catch (wErr) {
-                console.error('⚠️ Ошибка при проверке onWhatsApp, отправка по умолчанию:', wErr?.message);
+                console.error('⚠️ Ошибка при запросе onWhatsApp:', wErr?.message);
             }
 
-            console.log(`🚀 Отправка в WhatsApp на: ${recipientJid} | Текст: "${messageText}"`);
+            console.log(`🚀 Отправка в WhatsApp на JID: ${recipientJid} | Текст: "${messageText}"`);
 
-            // 4. Отправка сообщения
+            // 4. Отправляем сообщение
             const sentMsg = await sock.sendMessage(recipientJid, { text: messageText });
             console.log('✅ Сообщение успешно отправлено!', sentMsg?.key);
 
