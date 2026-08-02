@@ -15,14 +15,18 @@ const io = new Server(server);
 
 app.use(express.static(path.join(__dirname, 'public')));
 
-let sock;
+let sock = null;
 
 async function connectToWhatsApp() {
     const { state, saveCreds } = await useMultiFileAuthState('auth_info_baileys');
 
     sock = makeWASocket({
         auth: state,
-        printQRInTerminal: true
+        printQRInTerminal: true,
+        // Опции для защиты от таймаутов на Render
+        connectTimeoutMs: 60000,
+        defaultQueryTimeoutMs: 60000,
+        keepAliveIntervalMs: 25000
     });
 
     sock.ev.on('creds.update', saveCreds);
@@ -32,18 +36,29 @@ async function connectToWhatsApp() {
 
         if (qr) {
             console.log('⚡ Новый QR-код сгенерирован!');
-            const qrImageUrl = await qrcode.toDataURL(qr);
-            io.emit('qr', { qr: qrImageUrl });
+            try {
+                const qrImageUrl = await qrcode.toDataURL(qr);
+                io.emit('qr', { qr: qrImageUrl });
+            } catch (err) {
+                console.error('Ошибка генерации QR DataURL:', err);
+            }
         }
 
         if (connection === 'open') {
             console.log('✅ WhatsApp успешно подключен!');
             io.emit('ready');
         } else if (connection === 'close') {
-            const shouldReconnect = (lastDisconnect?.error)?.output?.statusCode !== DisconnectReason.loggedOut;
-            console.log('⚠️ Соединение закрыто. Переподключение:', shouldReconnect);
+            const statusCode = (lastDisconnect?.error)?.output?.statusCode;
+            const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
+            console.log(`⚠️ Соединение закрыто (код ${statusCode}). Переподключение: ${shouldReconnect}`);
+            
+            // Очищаем слушатели старого сокета перед созданием нового
+            if (sock) {
+                sock.ev.removeAllListeners();
+            }
+
             if (shouldReconnect) {
-                connectToWhatsApp();
+                setTimeout(connectToWhatsApp, 3000); // Небольшая задержка перед реконнектом
             }
         }
     });
@@ -85,37 +100,46 @@ io.on('connection', (socket) => {
 
             if (!rawNumber || !sock) {
                 console.error('❌ Ошибка: не указан номер или сокет WA не готов!');
+                socket.emit('error_msg', { message: 'WhatsApp еще не подключен' });
                 return;
             }
 
             // 1. Очищаем номер до чистых цифр
             let cleanNumber = String(rawNumber).replace(/\D/g, '');
 
-            // 2. Если номер начинается с 8 и длина 11 цифр — меняем на 7
+            // 2. Нормализуем номер (Казахстан / РФ)
             if (cleanNumber.startsWith('8') && cleanNumber.length === 11) {
                 cleanNumber = '7' + cleanNumber.slice(1);
             }
 
-            // 3. Запрашиваем у WhatsApp валидный JID и инициализируем E2EE сессию
-            const results = await sock.onWhatsApp(cleanNumber);
-            const userAccount = results && results[0];
+            // Форматируем с плюсом для корректной работы onWhatsApp
+            const searchPhone = '+' + cleanNumber;
+            console.log(`🔍 Проверяем номер в WhatsApp: ${searchPhone}`);
 
-            if (!userAccount || !userAccount.exists) {
-                console.error(`❌ Номер ${cleanNumber} не найден в WhatsApp!`);
-                socket.emit('error_msg', { message: 'Номер не зарегистрирован в WhatsApp' });
-                return;
+            let recipientJid = `${cleanNumber}@s.whatsapp.net`;
+
+            // 3. Запрашиваем официальный JID через onWhatsApp
+            try {
+                const results = await sock.onWhatsApp(searchPhone);
+                if (results && results.length > 0 && results[0].exists) {
+                    recipientJid = results[0].jid;
+                    console.log(`🎯 Найден валидный JID: ${recipientJid}`);
+                } else {
+                    console.warn(`⚠️ onWhatsApp не подтвердил номер, пробуем отправку на ${recipientJid}`);
+                }
+            } catch (wErr) {
+                console.error('⚠️ Ошибка при проверке onWhatsApp, отправка по умолчанию:', wErr?.message);
             }
 
-            const recipientJid = userAccount.jid; // Это правильный JID вида 77767737216@s.whatsapp.net или с идентификатором устройства
-
-            console.log(`🚀 Отправляем в WhatsApp на проверяемый JID: ${recipientJid} | Текст: "${messageText}"`);
+            console.log(`🚀 Отправка в WhatsApp на: ${recipientJid} | Текст: "${messageText}"`);
 
             // 4. Отправка сообщения
             const sentMsg = await sock.sendMessage(recipientJid, { text: messageText });
-            console.log('✅ Сообщение успешно отправлено в WhatsApp!', sentMsg?.key);
+            console.log('✅ Сообщение успешно отправлено!', sentMsg?.key);
 
         } catch (error) {
-            console.error('❌ Ошибка при реальной отправке в WhatsApp:', error);
+            console.error('❌ Ошибка при отправке:', error);
+            socket.emit('error_msg', { message: 'Ошибка при отправке сообщения' });
         }
     });
 });
