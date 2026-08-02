@@ -46,7 +46,7 @@
 
         .fab { position: absolute; bottom: 80px; right: 20px; width: 55px; height: 55px; background-color: #00a884; border-radius: 16px; display: flex; align-items: center; justify-content: center; color: #0b141a; font-size: 24px; box-shadow: 0 4px 12px rgba(0,0,0,0.5); cursor: pointer; z-index: 10; }
 
-        .bottom-nav { height: 65px; background-color: #111b21; border-top: 1px solid #1f2c34; display: flex; justify-around: space-around; align-items: center; flex-shrink: 0; width: 100%; }
+        .bottom-nav { height: 65px; background-color: #111b21; border-top: 1px solid #1f2c34; display: flex; justify-content: space-around; align-items: center; flex-shrink: 0; width: 100%; }
         .nav-item { display: flex; flex-direction: column; align-items: center; gap: 3px; color: #8696a0; font-size: 11px; cursor: pointer; flex: 1; }
         .nav-item.active { color: #e9edef; }
         .nav-icon-wrapper { padding: 4px 14px; border-radius: 16px; font-size: 18px; }
@@ -209,9 +209,17 @@
         let audioChunks = [];
         let isRecording = false;
 
+        socket.on('connect', () => {
+            console.log('✅ Успешное соединение с веб-сокетом сервера!');
+        });
+
+        socket.on('disconnect', () => {
+            console.warn('⚠️ Сокет отключился от сервера');
+        });
+
         function cleanPhoneNumber(rawPhone) {
             if (!rawPhone) return '';
-            let cleaned = rawPhone.split('@')[0].replace(/\D/g, '');
+            let cleaned = String(rawPhone).split('@')[0].replace(/\D/g, '');
             if (cleaned.startsWith('8') && cleaned.length === 11) {
                 cleaned = '7' + cleaned.slice(1);
             } else if (cleaned.length === 10) {
@@ -221,6 +229,7 @@
         }
 
         socket.on('qr', (data) => {
+            console.log('📱 Получен QR-код от сервера');
             const qrImg = document.getElementById('qr-image');
             const loader = document.getElementById('qr-loader');
             if (data.qr) {
@@ -231,22 +240,14 @@
         });
 
         socket.on('ready', () => {
+            console.log('🎉 Сервер подтвердил готовность WhatsApp!');
             document.getElementById('qr-screen').style.display = 'none';
             document.getElementById('app-screen').style.display = 'flex';
-            socket.emit('get_contacts');
-        });
-
-        socket.on('contacts', (contacts) => {
-            contacts.forEach(c => {
-                let cleanPhone = cleanPhoneNumber(c.phone);
-                if (cleanPhone && !savedContacts.some(sc => sc.phone === cleanPhone)) {
-                    savedContacts.push({ name: c.name || cleanPhone, phone: cleanPhone });
-                }
-            });
             saveAndRenderContacts();
         });
 
         socket.on('message', (msg) => {
+            console.log('📩 Получено сообщение:', msg);
             let phone = cleanPhoneNumber(msg.from);
             if (!phone || msg.from.includes('lid')) return;
 
@@ -413,6 +414,7 @@
             const text = input.value.trim();
             if (!text || !activeChatPhone) return;
 
+            console.log('🚀 Отправляем сообщение на сервер:', { to: activeChatPhone, text: text });
             socket.emit('send_message', { to: activeChatPhone, text: text, type: 'text' });
 
             const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -439,6 +441,7 @@
             const reader = new FileReader();
             reader.onload = function(e) {
                 const base64Image = e.target.result;
+                console.log('🖼️ Отправка картинки...');
                 socket.emit('send_message', { to: activeChatPhone, text: base64Image, type: 'image' });
                 const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
                 let chat = chatsMap.get(activeChatPhone);
@@ -475,6 +478,7 @@
                         const reader = new FileReader();
                         reader.onload = function(e) {
                             const base64Audio = e.target.result;
+                            console.log('🎤 Отправка аудио...');
                             socket.emit('send_message', { to: activeChatPhone, text: base64Audio, type: 'audio' });
                             
                             const timeStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
