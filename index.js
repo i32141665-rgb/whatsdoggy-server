@@ -11,7 +11,7 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server);
+const io = new Server(server, { maxHttpBufferSize: 1e8 }); // Поддержка больших аудиофайлов
 
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -23,8 +23,8 @@ async function connectToWhatsApp() {
     sock = makeWASocket({
         auth: state,
         printQRInTerminal: true,
-        syncFullHistory: false, // Защита от вылета сервера Render (error 408)
-        markOnlineOnConnect: false,
+        syncFullHistory: true, // Включаем полную синхронизацию истории чатов
+        markOnlineOnConnect: true,
         connectTimeoutMs: 60000,
         defaultQueryTimeoutMs: 60000,
         keepAliveIntervalMs: 25000
@@ -36,7 +36,6 @@ async function connectToWhatsApp() {
         const { connection, lastDisconnect, qr } = update;
 
         if (qr) {
-            console.log('⚡ Новый QR-код!');
             try {
                 const qrImageUrl = await qrcode.toDataURL(qr);
                 io.emit('qr', { qr: qrImageUrl });
@@ -46,36 +45,44 @@ async function connectToWhatsApp() {
         }
 
         if (connection === 'open') {
-            console.log('✅ WhatsApp подключен!');
+            console.log('✅ WhatsApp успешно подключен!');
             io.emit('ready');
         } else if (connection === 'close') {
             const statusCode = (lastDisconnect?.error)?.output?.statusCode;
-            const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
-            console.log(`⚠️ Соединение закрыто (код ${statusCode}).`);
-            
-            if (sock) {
-                sock.ev.removeAllListeners();
-            }
-
-            if (shouldReconnect) {
+            if (statusCode !== DisconnectReason.loggedOut) {
                 setTimeout(connectToWhatsApp, 3000);
             }
         }
     });
 
-    // 📩 Получение списка существующих диалогов/чатов
-    sock.ev.on('chats.set', ({ chats }) => {
-        console.log(`💬 Загружено чатов: ${chats.length}`);
-        const chatList = chats
-            .filter(c => c.id && !c.id.includes('@g.us') && !c.id.includes('@broadcast'))
-            .map(c => ({
+    // Функция для получения аватарки
+    async function getProfilePic(jid) {
+        try {
+            return await sock.profilePictureUrl(jid, 'image');
+        } catch {
+            return null; // Если у пользователя нет аватарки или скрыта настройками приватности
+        }
+    }
+
+    // Подгрузка истории чатов при первичном входе через QR
+    sock.ev.on('messaging-history.set', async ({ chats }) => {
+        console.log(`💬 Синхронизировано чатов: ${chats.length}`);
+        const formattedChats = [];
+
+        for (const c of chats) {
+            if (!c.id || c.id.includes('@g.us') || c.id.includes('@broadcast')) continue;
+            const avatar = await getProfilePic(c.id);
+            formattedChats.push({
                 id: c.id.split('@')[0],
-                name: c.name || c.id.split('@')[0]
-            }));
-        io.emit('chat_list', chatList);
+                jid: c.id,
+                name: c.name || c.id.split('@')[0],
+                avatar: avatar
+            });
+        }
+        io.emit('chat_list', formattedChats);
     });
 
-    // 📩 Получение входящих сообщений
+    // Обработка входящих сообщений
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
         if (type !== 'notify') return;
 
@@ -83,56 +90,70 @@ async function connectToWhatsApp() {
             if (!msg.message || msg.key.fromMe) continue;
 
             const fromJid = msg.key.remoteJid;
-            if (!fromJid || fromJid.includes('@g.us') || fromJid.includes('@broadcast') || fromJid.includes('@lid')) {
-                continue;
-            }
+            if (!fromJid || fromJid.includes('@g.us') || fromJid.includes('@broadcast')) continue;
 
             const cleanPhone = fromJid.split('@')[0].split(':')[0].replace(/\D/g, '');
             const text = msg.message.conversation || msg.message.extendedTextMessage?.text || '';
+            const avatar = await getProfilePic(fromJid);
 
             io.emit('message', {
                 from: cleanPhone,
                 text: text,
+                avatar: avatar,
                 type: 'text'
             });
         }
     });
 }
 
-// 🔌 Сокетное соединение с сайтом
+// Отправка сообщений
 io.on('connection', (socket) => {
-    console.log('🔌 Клиент подключился');
-
     socket.on('send_message', async (data) => {
         try {
-            const rawNumber = data.to || data.phone || data.number;
-            const messageText = data.text || data.message;
+            if (!sock) return;
 
-            if (!rawNumber || !sock) return;
-
-            let cleanNumber = String(rawNumber).replace(/\D/g, '');
+            let cleanNumber = String(data.to).replace(/\D/g, '');
             if (cleanNumber.startsWith('8') && cleanNumber.length === 11) {
                 cleanNumber = '7' + cleanNumber.slice(1);
             }
 
-            const searchPhone = '+' + cleanNumber;
-            let recipientJid = `${cleanNumber}@s.whatsapp.net`;
-
-            try {
-                const results = await sock.onWhatsApp(searchPhone);
-                if (results && results.length > 0 && results[0].exists) {
-                    recipientJid = results[0].jid;
-                }
-            } catch (wErr) {
-                console.error('Ошибка проверки номера:', wErr?.message);
+            // Поиск реального JID контакта в WhatsApp
+            const [result] = await sock.onWhatsApp(`+${cleanNumber}`);
+            if (!result || !result.exists) {
+                socket.emit('error_msg', { message: 'Этот номер не зарегистрирован в WhatsApp!' });
+                return;
             }
 
-            await sock.sendMessage(recipientJid, { text: messageText });
-            console.log(`✅ Сообщение отправлено на ${recipientJid}`);
+            const recipientJid = result.jid;
 
+            // 1. Отправка обычного текста
+            if (data.type === 'text') {
+                await sock.sendMessage(recipientJid, { text: data.text });
+            } 
+            // 2. Отправка голосового сообщения (PTT)
+            else if (data.type === 'audio') {
+                const base64Data = data.text.split(',')[1];
+                const audioBuffer = Buffer.from(base64Data, 'base64');
+
+                await sock.sendMessage(recipientJid, {
+                    audio: audioBuffer,
+                    mimetype: 'audio/mp4', // Совместимый формат для WhatsApp
+                    ptt: true // Флаг голосового сообщения
+                });
+            }
+            // 3. Отправка картинки
+            else if (data.type === 'image') {
+                const base64Data = data.text.split(',')[1];
+                const imageBuffer = Buffer.from(base64Data, 'base64');
+
+                await sock.sendMessage(recipientJid, {
+                    image: imageBuffer
+                });
+            }
+
+            console.log(`✅ Сообщение типа [${data.type}] отправлено на ${recipientJid}`);
         } catch (error) {
             console.error('❌ Ошибка отправки:', error);
-            socket.emit('error_msg', { message: 'Ошибка при отправке сообщения' });
         }
     });
 });
@@ -140,4 +161,4 @@ io.on('connection', (socket) => {
 connectToWhatsApp();
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`🚀 Сервер WhatsDoggy запущен на порту ${PORT}`));
+server.listen(PORT, () => console.log(`🚀 Сервер запущен на порту ${PORT}`));
